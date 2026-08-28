@@ -26,7 +26,6 @@
     --warn:#a15c07; --warn-bg:#fdf8ef; --warn-line:#eddcc0;
     --accent:#c86c08;
     --shadow:0 1px 2px rgba(20,22,28,.05);
-    --scrim:rgba(22,24,29,.28);
     /* Spacing scale. Before this the stylesheet used ten different gap values
        (4,7,8,9,10,11,12,13,14,30) with no relationship between them, so every
        new rule guessed. The steps are taken from what the page already was
@@ -45,7 +44,6 @@
       --warn:#fbbf24; --warn-bg:#2a2113; --warn-line:#4a3a18;
       --accent:#f0913a;
       --shadow:none;
-      --scrim:rgba(0,0,0,.5);
     }
   }
   * { box-sizing:border-box; }
@@ -79,11 +77,70 @@
 
   main { padding:26px 24px 40px; max-width:1240px; margin:0 auto; }
 
-  /* Two columns: the fleet is what the eye lands on, and the activity feed
-     sits beside it as peripheral vision rather than competing for the
-     centre. One column below 980px, feed last. */
-  .board { display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:var(--sp-6); align-items:start; }
-  @media (max-width:980px) { .board { grid-template-columns:minmax(0,1fr); } }
+  .fleet-head { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:18px 28px;
+                align-items:end; margin-bottom:26px; }
+  .fleet-statement { font-family:ui-serif,Georgia,Cambria,"Times New Roman",serif;
+                     font-size:clamp(25px,3.1vw,38px); line-height:1.16;
+                     letter-spacing:-.025em; margin:0; max-width:850px; }
+  .fleet-statement b { font-weight:650; }
+  .fleet-statement .bad { color:var(--bad); }
+  .fleet-facts { display:flex; gap:7px 24px; flex-wrap:wrap; margin-top:12px;
+                 color:var(--muted); font-size:13.5px; font-variant-numeric:tabular-nums; }
+  .fleet-fact { display:flex; gap:6px; align-items:baseline; }
+  .fleet-fact b { color:var(--ink); font-weight:600; }
+  .fleet-fact.warn, .fleet-fact.warn b { color:var(--warn); }
+  .fleet-mode { display:inline-flex; align-self:start; padding:3px; border:1px solid var(--line);
+                background:var(--sunk); border-radius:9px; }
+  .fleet-mode button { border:0; background:transparent; color:var(--muted); font:inherit;
+                       font-size:12.5px; padding:5px 10px; border-radius:6px; cursor:pointer; }
+  .fleet-mode button[aria-pressed="true"] { color:var(--ink); background:var(--panel);
+                                             box-shadow:var(--shadow); }
+  .overview-grid.has-attention { display:grid; grid-template-columns:minmax(0,1fr) 330px;
+                                 gap:var(--sp-6); align-items:start; }
+  .machine-room { min-width:0; }
+  .bay { margin-bottom:22px; border:1px solid var(--line); border-radius:10px;
+         background:var(--panel); box-shadow:var(--shadow); overflow:hidden; }
+  .bay-head { display:flex; align-items:baseline; justify-content:space-between; gap:var(--sp-4);
+              padding:12px 15px; background:var(--sunk); border-bottom:1px solid var(--line); }
+  .bay-name { font-size:14px; font-weight:650; letter-spacing:-.005em; }
+  .bay-facts { font-size:12px; color:var(--muted); text-align:right; }
+  .bay-body .rows { border:0; border-radius:0; box-shadow:none; }
+  .machine-room.matrix { border:1px solid var(--line); border-radius:10px; overflow:auto;
+                         background:var(--panel); max-height:min(70vh,760px); }
+  .matrix-table { border-collapse:collapse; width:100%; min-width:760px; font-size:13px; }
+  .matrix-table th { position:sticky; top:0; z-index:2; background:var(--sunk); color:var(--muted);
+                     font-size:12px; font-weight:600; text-align:left; padding:9px 12px;
+                     border-bottom:1px solid var(--line); }
+  .matrix-table td { border-top:1px solid var(--line); padding:10px 12px; vertical-align:top; }
+  .matrix-table tbody tr:first-child td { border-top:0; }
+  .matrix-table tr.unhealthy { background:var(--bad-bg); }
+  .matrix-table .matrix-open { border:0; background:none; color:inherit; font:inherit;
+                               padding:0; text-align:left; cursor:pointer; }
+  .matrix-table .matrix-id { display:block; font-weight:650; }
+  .matrix-table .matrix-meta { display:block; color:var(--muted); font-size:12px; margin-top:2px; }
+  [data-device-id].work-match { outline:2px solid var(--accent); outline-offset:-2px;
+                                background:var(--warn-bg); }
+  .attention { border:1px solid var(--bad-line); border-radius:10px; background:var(--panel);
+               box-shadow:var(--shadow); overflow:hidden; }
+  .attention-head { padding:12px 14px; border-bottom:1px solid var(--bad-line); }
+  .attention-head h2 { margin:0; font-size:15px; color:var(--bad); }
+  .incident { padding:12px 14px; border-bottom:1px solid var(--line); }
+  .incident:last-child { border-bottom:0; }
+  .incident b { display:block; font-size:13.5px; }
+  .incident span { display:block; color:var(--muted); font-size:12.5px; margin-top:2px; }
+  .changes { border-top:1px solid var(--line); padding-top:12px; margin-top:12px; }
+  .work-strip { margin-top:30px; }
+  @media (max-width:980px) {
+    .overview-grid.has-attention { display:flex; flex-direction:column; }
+    .overview-grid.has-attention .attention { order:-1; width:100%; }
+  }
+  @media (max-width:680px) {
+    main { padding-left:14px; padding-right:14px; }
+    .fleet-head { grid-template-columns:minmax(0,1fr); }
+    .fleet-mode { justify-self:start; }
+    .bay-head { display:block; }
+    .bay-facts { text-align:left; margin-top:3px; }
+  }
 
   /* Summary line: the whole fleet in one sentence, so a glance needs no
      counting. It is the first thing read and usually the only thing. */
@@ -248,22 +305,34 @@
   .ev.good .ev-text b { color:var(--ink); }
   .feed-note { font-size:11.5px; color:var(--faint); margin:8px 2px 0; }
 
-  /* ---- detail panel -------------------------------------------------- */
-  #scrim { position:fixed; inset:0; background:var(--scrim); z-index:10; }
-  #panel {
-    position:fixed; top:0; right:0; bottom:0; width:min(560px,100%);
-    background:var(--panel); border-left:1px solid var(--line); z-index:11;
-    display:flex; flex-direction:column; box-shadow:-8px 0 30px rgba(20,22,28,.10);
-  }
-  .panel-head { display:flex; align-items:center; gap:var(--sp-3); padding:14px 18px;
-                border-bottom:1px solid var(--line); flex:none; }
-  .panel-head h2 { font-size:15px; margin:0; font-weight:600; flex:1; min-width:0;
-                   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .panel-kind { font-size:11px; color:var(--muted); letter-spacing:.08em; text-transform:uppercase; }
+  /* ---- entity workspaces -------------------------------------------- */
+  .workspace-head { display:grid; grid-template-columns:auto minmax(0,1fr); gap:var(--sp-4);
+                    align-items:start; margin-bottom:26px; padding-bottom:16px;
+                    border-bottom:1px solid var(--line); }
+  .workspace-head h2 { margin:2px 0 0; font:650 clamp(23px,3vw,34px)/1.2 ui-serif,Georgia,serif;
+                       overflow-wrap:anywhere; }
+  .workspace-kind { display:block; font-size:11px; color:var(--muted); letter-spacing:.08em;
+                    text-transform:uppercase; }
+  .workspace-body { max-width:none; }
+  .workspace-columns { display:grid; grid-template-columns:minmax(0,1fr) minmax(340px,.8fr);
+                       gap:var(--sp-6); align-items:start; }
+  .workspace-details, .workspace-output { min-width:0; }
+  .workspace-tabs { display:none; }
+  .host-devices { margin-top:22px; }
+  .host-open { border:0; background:none; color:inherit; font:inherit; padding:0; cursor:pointer; }
+  .host-open:hover { color:var(--accent); }
   .iconbtn { border:0; background:none; color:var(--muted); font:inherit; font-size:17px;
              line-height:1; cursor:pointer; padding:4px 7px; border-radius:7px; }
   .iconbtn:hover { color:var(--accent); background:var(--hover); }
-  .panel-body { padding:18px; overflow:auto; flex:1; }
+  @media (max-width:760px) {
+    .workspace-columns { display:block; }
+    .workspace-tabs { display:flex; gap:var(--sp-2); margin-bottom:16px; border-bottom:1px solid var(--line); }
+    .workspace-tabs button { border:0; border-bottom:2px solid transparent; background:none;
+                             color:var(--muted); padding:8px 2px; margin-right:14px; font:inherit; cursor:pointer; }
+    .workspace-tabs button[aria-selected="true"] { color:var(--ink); border-color:var(--accent); }
+    .workspace-columns[data-tab="details"] .workspace-output,
+    .workspace-columns[data-tab="output"] .workspace-details { display:none; }
+  }
 
   .big { font-size:19px; font-weight:600; letter-spacing:-.015em; margin:0 0 2px; }
   .big.ready { color:var(--ready); } .big.busy { color:var(--busy); }
@@ -321,7 +390,7 @@
           border-radius:7px; padding:2px 8px; font:inherit; font-size:11.5px; cursor:pointer; }
   .tiny:hover { border-color:var(--accent); color:var(--accent); }
 
-  /* The live log. Fixed height so the panel's own layout never jumps as
+  /* The live log. Fixed height so the workspace's own layout never jumps as
      output arrives, and it sticks to the bottom only while the reader is
      already there — scrolling up to read something must not be undone by
      the next chunk. */
@@ -377,7 +446,7 @@
     outline:2px solid var(--accent); outline-offset:2px;
   }
 
-  /* The only motion on this page, and only for a reader who has not asked
+  /* The only ambient motion on this page, and only for a reader who has not asked
      for less of it: a row and a portrait ease between their colours instead
      of snapping. Nothing here moves on its own, and nothing moves at all
      under prefers-reduced-motion. */
@@ -422,41 +491,52 @@
 </div>
 
 <main id="app" class="hide">
-  <div class="board">
-    <div>
-      <p class="summary" id="summary"></p>
-      <p class="sub" id="sub"></p>
-      <div id="fleet"></div>
-      <section id="workSection" class="hide">
-        <h2 class="sec">Work</h2>
-        <div id="work"></div>
-      </section>
+  <section id="fleetOverview">
+    <div class="fleet-head">
+      <div>
+        <p class="fleet-statement" id="fleetSummary"></p>
+        <div class="fleet-facts" id="fleetFacts"></div>
+      </div>
+      <div class="fleet-mode" id="fleetMode" role="group" aria-label="Fleet display">
+        <button type="button" data-mode="bays" aria-pressed="true">Bays</button>
+        <button type="button" data-mode="matrix" aria-pressed="false">Matrix</button>
+      </div>
     </div>
-    <aside>
-      <h2 class="sec">Activity</h2>
-      <div class="feed" id="feed"></div>
-      <p class="feed-note">Recorded while this page is open — the controller keeps no history to
-        replay, so this starts fresh on every reload.</p>
-    </aside>
-  </div>
+    <div class="overview-grid" id="overviewGrid">
+      <div class="machine-room" id="machineRoom"></div>
+      <aside class="attention hide" id="attentionRegion" aria-labelledby="attentionTitle">
+        <div class="attention-head"><h2 id="attentionTitle">Needs attention</h2></div>
+        <div id="attentionItems"></div>
+        <div class="changes">
+          <h3 class="sec">Changes in this tab</h3>
+          <div class="feed" id="feed"></div>
+          <p class="feed-note">The controller keeps no event history to replay, so this starts
+            fresh on every reload.</p>
+        </div>
+      </aside>
+    </div>
+    <section class="work-strip hide" id="workStrip">
+      <h2 class="sec">Queued and active work</h2>
+      <div id="work"></div>
+    </section>
+  </section>
   <form class="who-bar" id="whoBar">
     <label for="who">You are</label>
     <input id="who" type="text" autocomplete="off" placeholder="alice@lab">
     <button type="submit">Set</button>
     <span id="whoHint"></span>
   </form>
+  <section id="workspace" class="hide" aria-labelledby="workspaceHeading">
+    <div class="workspace-head">
+      <button id="workspaceBack" class="iconbtn" type="button" title="back to fleet">&#8592;</button>
+      <div>
+        <span id="workspaceKind" class="workspace-kind"></span>
+        <h2 id="workspaceHeading" tabindex="-1"></h2>
+      </div>
+    </div>
+    <div id="workspaceBody" class="workspace-body"></div>
+  </section>
 </main>
-
-<div id="scrim" class="hide"></div>
-<aside id="panel" class="hide" role="dialog" aria-modal="true" aria-labelledby="panelTitle">
-  <div class="panel-head">
-    <button id="panelBack" class="iconbtn hide" type="button" title="back">&#8592;</button>
-    <h2 id="panelTitle"></h2>
-    <span id="panelKind" class="panel-kind"></span>
-    <button id="panelClose" class="iconbtn" type="button" title="close">&#215;</button>
-  </div>
-  <div class="panel-body" id="panelBody"></div>
-</aside>
 
 <!-- The device glyphs: four drawings, and deliberately only four.
 
@@ -519,6 +599,7 @@
   </svg>
 </template>
 
+<script src="/dashboard/anime.umd.min.js"></script>
 <script>
 (function () {
   // Credentials, in one place.
@@ -1024,7 +1105,7 @@
     });
     adminToken = null; // same discipline as the clear path above
     retiring.then(function (r) {
-      if (r.ok) { actOK("retired " + id); closePanel(); refresh(); return; }
+      if (r.ok) { actOK("retired " + id); closeWorkspace(); refresh(); return; }
       return serverError(r).then(actFail);
     }).catch(function (e) { actFail(e.message); });
   }
@@ -1252,13 +1333,37 @@
     noteDeviceChanges(views);
     if (first) seedFeed(state);
 
-    renderSummary(state, views);
-    renderFleet(views, state);
-    renderWork(state, views);
-    if (panelView) renderPanel();
+    renderOverview(state);
+    if (workspaceView.kind !== "fleet") renderWorkspace({ preserve: true });
   }
 
-  function renderSummary(state, views) {
+  var fleetMode = "bays";
+
+  function setFleetMode(mode) {
+    fleetMode = mode !== "matrix" ? "bays" : "matrix";
+    document.querySelectorAll("#fleetMode button").forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b.getAttribute("data-mode") === fleetMode));
+    });
+    if (latest) renderMachineRoom(latest.devices || [], latest);
+  }
+
+  document.querySelectorAll("#fleetMode button").forEach(function (b) {
+    b.addEventListener("click", function () { setFleetMode(b.getAttribute("data-mode")); });
+  });
+
+  function fleetFreshness(views) {
+    var missing = 0, future = 0, oldest = null;
+    views.forEach(function (v) {
+      var age = v.oldest_label_age_seconds;
+      if (typeof age !== "number" || !isFinite(age)) missing++;
+      else if (age < 0) future++;
+      else if (oldest === null || age > oldest) oldest = age;
+    });
+    return { missing: missing, future: future, oldest: oldest };
+  }
+
+  function renderOverview(state) {
+    var views = state.devices || [];
     var free = 0, busy = 0, down = 0, quiet = 0;
     views.forEach(function (v) {
       if (v.device.state === "unhealthy") down++;
@@ -1266,46 +1371,79 @@
       else if (v.device.state === "ready") free++;
       else quiet++;
     });
-    var sum = document.getElementById("summary");
+    var sum = document.getElementById("fleetSummary");
     sum.textContent = "";
     if (!views.length) {
-      sum.textContent = "No devices yet.";
+      sum.textContent = "The fleet is waiting for its first device.";
     } else {
       sum.appendChild(el("b", null, String(free)));
-      sum.appendChild(txt(free === 1 ? " device free, " : " devices free, "));
+      sum.appendChild(txt(free === 1 ? " device is free; " : " devices are free; "));
       sum.appendChild(el("b", null, String(busy)));
-      sum.appendChild(txt(" in use"));
-      if (quiet) sum.appendChild(txt(", " + quiet + " not reporting"));
+      sum.appendChild(txt(busy === 1 ? " is occupied" : " are occupied"));
+      if (quiet) sum.appendChild(txt("; " + quiet + (quiet === 1 ? " is not reporting" : " are not reporting")));
       if (down) {
-        sum.appendChild(txt(", "));
-        sum.appendChild(el("span", "bad", down + " out of the pool"));
+        sum.appendChild(txt("; "));
+        sum.appendChild(el("span", "bad", down + (down === 1 ? " needs intervention" : " need intervention")));
       }
       sum.appendChild(txt("."));
     }
 
-    // The queue, with the one fact a snapshot cannot show: that something
-    // has been waiting far longer than it should.
-    var sub = document.getElementById("sub");
-    sub.textContent = "";
+    var facts = document.getElementById("fleetFacts");
+    facts.textContent = "";
     var queued = state.queued || [];
     var waits = state.queued_waiting_seconds || {};
-    if (!queued.length) {
-      sub.textContent = "Nothing waiting.";
-      return;
+    var longest = null;
+    queued.forEach(function (j) {
+      var waited = waits[j.id];
+      if (typeof waited === "number" && (longest === null || waited > longest)) longest = waited;
+    });
+    var queueFact = el("span", "fleet-fact" + (longest !== null && longest >= 600 ? " warn" : ""));
+    queueFact.appendChild(el("b", null, String(queued.length)));
+    queueFact.appendChild(txt(queued.length === 1 ? " job queued" : " jobs queued"));
+    if (longest !== null) queueFact.appendChild(txt(" · longest " + ago(longest)));
+    facts.appendChild(queueFact);
+
+    var fresh = fleetFreshness(views);
+    if (fresh.missing) {
+      var unknown = el("span", "fleet-fact warn");
+      unknown.appendChild(el("b", null, "Freshness unknown"));
+      unknown.appendChild(txt(" · " + fresh.missing + (fresh.missing === 1 ? " device" : " devices") +
+        " did not report label age"));
+      facts.appendChild(unknown);
+    } else if (fresh.oldest !== null) {
+      var oldest = el("span", "fleet-fact" + (fresh.oldest > 3600 ? " warn" : ""));
+      oldest.appendChild(el("b", null, "Oldest labels"));
+      oldest.appendChild(txt(" · " + ago(fresh.oldest)));
+      facts.appendChild(oldest);
     }
-    var longest = 0;
-    queued.forEach(function (j) { longest = Math.max(longest, waits[j.id] || 0); });
-    sub.appendChild(txt(queued.length + (queued.length === 1 ? " job waiting" : " jobs waiting")));
-    if (longest >= 600) {
-      sub.appendChild(txt(" — "));
-      sub.appendChild(el("span", "long", "one for " + ago(longest)));
-      sub.appendChild(txt("."));
-    } else {
-      sub.appendChild(txt(", longest " + ago(longest) + "."));
+    if (fresh.future) {
+      var future = el("span", "fleet-fact warn");
+      future.appendChild(el("b", null, "Future clock warning"));
+      future.appendChild(txt(" · " + fresh.future + (fresh.future === 1 ? " device reports" : " devices report") +
+        " label time ahead of the controller"));
+      facts.appendChild(future);
     }
+
+    renderMachineRoom(views, state);
+    renderAttention(views, state);
+    renderWorkStrip(state, views);
   }
 
-  function renderFleet(views, state) {
+  function deviceSeverity(state) {
+    if (state === "unhealthy") return 4;
+    if (state === "unknown") return 3;
+    if (state === "busy") return 2;
+    if (state === "ready") return 1;
+    return 0;
+  }
+
+  function hostSeverity(views) {
+    var severity = 0;
+    views.forEach(function (v) { severity = Math.max(severity, deviceSeverity(v.device.state)); });
+    return severity;
+  }
+
+  function renderMachineRoom(views, state) {
     var waitingBy = {};
     (state.queued || []).forEach(function (j) {
       if (!j.device_id) return;
@@ -1315,12 +1453,13 @@
       });
     });
 
-    var fleet = document.getElementById("fleet");
-    fleet.textContent = "";
+    var room = document.getElementById("machineRoom");
+    room.textContent = "";
+    room.classList.toggle("matrix", fleetMode === "matrix");
     if (!views.length) {
       var e = el("div", "empty", "No devices are registered.");
       e.appendChild(el("div", "hint", "Start a worker on a device host and it will appear here."));
-      fleet.appendChild(e);
+      room.appendChild(e);
       return;
     }
 
@@ -1329,25 +1468,107 @@
       var h = v.device.host || "—";
       (byHost[h] = byHost[h] || []).push(v);
     });
-    Object.keys(byHost).sort().forEach(function (h) {
-      var sec = el("div", "host");
-      var hd = el("div", "host-name");
-      hd.appendChild(el("span", null, h));
-      var facts = hostSummary(byHost[h]);
-      if (facts) hd.appendChild(el("span", "host-note", facts));
-      sec.appendChild(hd);
-      var rows = el("div", "rows");
-      byHost[h].sort(function (a, b) { return a.device.id < b.device.id ? -1 : 1; })
-        .forEach(function (v) { rows.appendChild(deviceRow(v, waitingBy[v.device.id] || [])); });
-      sec.appendChild(rows);
-      fleet.appendChild(sec);
+
+    var hosts = Object.keys(byHost).sort(function (a, b) {
+      return hostSeverity(byHost[b]) - hostSeverity(byHost[a]) || a.localeCompare(b);
     });
+    if (fleetMode === "matrix") {
+      var table = el("table", "matrix-table");
+      var head = el("thead"), headRow = el("tr");
+      ["Device", "Work", "State", "Actions"].forEach(function (s) { headRow.appendChild(el("th", null, s)); });
+      head.appendChild(headRow);
+      table.appendChild(head);
+      var body = el("tbody");
+      var all = views.slice();
+      all.sort(function (a, b) {
+        var ah = a.device.host || "—", bh = b.device.host || "—";
+        return hostSeverity(byHost[bh]) - hostSeverity(byHost[ah]) ||
+          ah.localeCompare(bh) || a.device.id.localeCompare(b.device.id);
+      });
+      all.forEach(function (v) { body.appendChild(matrixDeviceRow(v, waitingBy[v.device.id] || [])); });
+      table.appendChild(body);
+      room.appendChild(table);
+      return;
+    }
+
+    hosts.forEach(function (h) {
+      var sec = el("section", "bay");
+      var hd = el("header", "bay-head");
+      var hostOpen = el("button", "bay-name mono host-open", h);
+      hostOpen.type = "button";
+      hostOpen.setAttribute("data-workspace-kind", "host");
+      hostOpen.setAttribute("data-workspace-id", h);
+      hostOpen.addEventListener("click", function () { openHost(h); });
+      hd.appendChild(hostOpen);
+      var facts = hostSummary(byHost[h]);
+      var heartbeat = null;
+      byHost[h].forEach(function (v) {
+        if (typeof v.heartbeat_age_seconds === "number" &&
+            (heartbeat === null || v.heartbeat_age_seconds > heartbeat)) heartbeat = v.heartbeat_age_seconds;
+      });
+      if (heartbeat !== null) facts += " · heartbeat " + ago(heartbeat) + " ago";
+      if (facts) hd.appendChild(el("span", "bay-facts", facts));
+      sec.appendChild(hd);
+      var bayBody = el("div", "bay-body");
+      var rows = el("div", "rows");
+      byHost[h].sort(function (a, b) { return a.device.id.localeCompare(b.device.id); })
+        .forEach(function (v) { rows.appendChild(deviceRow(v, waitingBy[v.device.id] || [])); });
+      bayBody.appendChild(rows);
+      sec.appendChild(bayBody);
+      room.appendChild(sec);
+    });
+  }
+
+  function matrixDeviceRow(v, queuedFor) {
+    var d = v.device;
+    var row = el("tr", d.state);
+    row.setAttribute("data-device-id", d.id);
+
+    var deviceCell = el("td");
+    var open = el("button", "matrix-open");
+    open.type = "button";
+    open.setAttribute("data-workspace-kind", "device");
+    open.setAttribute("data-workspace-id", d.id);
+    open.addEventListener("click", function () { openDevice(d.id); });
+    open.appendChild(el("span", "matrix-id mono", d.id));
+    open.appendChild(el("span", "matrix-meta", (d.host || "—") + (specLine(v) ? " · " + specLine(v) : "")));
+    deviceCell.appendChild(open);
+    row.appendChild(deviceCell);
+
+    var work = el("td");
+    if (v.holder) {
+      work.appendChild(el("span", null, v.holder));
+      work.appendChild(el("span", "matrix-meta mono", (v.job_id ? "job " + v.job_id.slice(0, 8) + " · " : "") + ago(v.elapsed_seconds)));
+    } else if (queuedFor.length) {
+      work.appendChild(el("span", null, queuedFor.length + (queuedFor.length === 1 ? " named job waiting" : " named jobs waiting")));
+      work.appendChild(el("span", "matrix-meta", "longest " + ago(Math.max.apply(null, queuedFor.map(function (j) { return j.waited; })))));
+    } else {
+      work.appendChild(el("span", "matrix-meta", "No assigned work"));
+    }
+    row.appendChild(work);
+
+    var state = el("td");
+    state.appendChild(el("span", "pill " + d.state, stateWord(d.state)));
+    if (d.state === "unhealthy") state.appendChild(el("span", "matrix-meta", explain(v.quarantine_reason).headline));
+    row.appendChild(state);
+
+    var actions = el("td");
+    if (d.state === "unhealthy") {
+      actions.appendChild(button("act danger", "Return to pool", function () {
+        clearDevice(d.id, v.quarantine_reason);
+      }));
+    } else {
+      actions.appendChild(button("act", "Open", function () { openDevice(d.id); }));
+    }
+    row.appendChild(actions);
+    return row;
   }
 
   function deviceRow(v, queuedFor) {
     var d = v.device;
     var down = d.state === "unhealthy";
     var row = el("div", "row" + (down ? " down" : ""));
+    row.setAttribute("data-device-id", d.id);
 
     // The rail runs the full height of the row, outside the button, so it is
     // a property of the row rather than of anything clickable inside it.
@@ -1355,6 +1576,8 @@
 
     var open = el("button", "open devrow");
     open.type = "button";
+    open.setAttribute("data-workspace-kind", "device");
+    open.setAttribute("data-workspace-id", d.id);
     open.addEventListener("click", function () { openDevice(d.id); });
     // The glyph, decorative and hidden from a screen reader: it repeats the
     // state and the hardware, both of which are already words further down
@@ -1382,6 +1605,7 @@
       var l2 = el("div", "line2");
       l2.appendChild(el("span", "who", v.holder));
       if (v.kind === "hold") l2.appendChild(txt(" is holding it" + (v.reason ? " — " + clip(v.reason, 60) : "")));
+      if (v.job_id) l2.appendChild(el("span", "mono", " · job " + v.job_id.slice(0, 8)));
       l2.appendChild(el("span", "dur", " · " + ago(v.elapsed_seconds)));
       body.appendChild(l2);
     }
@@ -1438,14 +1662,68 @@
     return row;
   }
 
+  function renderAttention(views, state) {
+    var region = document.getElementById("attentionRegion");
+    var items = document.getElementById("attentionItems");
+    var incidents = [];
+
+    views.forEach(function (v) {
+      var d = v.device;
+      if (d.state === "unhealthy") {
+        incidents.push({
+          title: (d.name || d.id) + " is out of the pool",
+          detail: explain(v.quarantine_reason).headline,
+          open: function () { openDevice(d.id); }
+        });
+      } else if (d.state === "unknown" && v.heartbeat_age_seconds > 30) {
+        incidents.push({
+          title: (d.name || d.id) + " is not reporting",
+          detail: "Nothing heard for " + ago(v.heartbeat_age_seconds) + ". Check the worker on " + (d.host || "its host") + ".",
+          open: function () { openDevice(d.id); }
+        });
+      }
+    });
+    (state.queued || []).forEach(function (j) {
+      var waited = (state.queued_waiting_seconds || {})[j.id];
+      if (typeof waited === "number" && waited >= 600) {
+        incidents.push({
+          title: "A queued job has waited " + ago(waited),
+          detail: j.device_id ? "It names " + j.device_id + "." : "It is waiting for " + (j.selector || "an eligible device") + ".",
+          open: function () { openJob(j.id); }
+        });
+      }
+    });
+    if (lastFetchAt && Date.now() - lastFetchAt > 30000) {
+      incidents.push({
+        title: "The controller connection is stale",
+        detail: "The last fleet snapshot arrived " + ago(Math.floor((Date.now() - lastFetchAt) / 1000)) + " ago. Polling will keep trying."
+      });
+    }
+
+    items.textContent = "";
+    incidents.forEach(function (incident) {
+      var item = incident.open ? el("button", "incident ev-open") : el("div", "incident");
+      if (incident.open) {
+        item.type = "button";
+        item.addEventListener("click", incident.open);
+      }
+      item.appendChild(el("b", null, incident.title));
+      item.appendChild(el("span", null, incident.detail));
+      items.appendChild(item);
+    });
+    var visible = incidents.length > 0;
+    region.classList.toggle("hide", !visible);
+    document.getElementById("overviewGrid").classList.toggle("has-attention", visible);
+  }
+
   // Work is the second half of the board: what is running right now and
   // what is waiting for a device, each one click from its own detail and
   // its live output. Running work is read off the device views because
   // their elapsed time is server-measured; queued work off the queue, for
   // the same reason.
-  function renderWork(state, views) {
+  function renderWorkStrip(state, views) {
     var box = document.getElementById("work");
-    var section = document.getElementById("workSection");
+    var section = document.getElementById("workStrip");
     box.textContent = "";
 
     var running = views.filter(function (v) { return v.job_id; });
@@ -1462,6 +1740,63 @@
     box.appendChild(rows);
   }
 
+  // This mirrors the controller's supported selector subset. A highlight is
+  // a scheduling claim, so malformed expressions and facts a device did not
+  // report are never treated as eligibility.
+  function selectorQuantity(value) {
+    var text = String(value).trim();
+    if (!text) return null;
+    var multiplier = 1;
+    var suffix = text.charAt(text.length - 1).toUpperCase();
+    var powers = { K: 1024, M: 1048576, G: 1073741824, T: 1099511627776 };
+    if (powers[suffix]) {
+      multiplier = powers[suffix];
+      text = text.slice(0, -1).trim();
+    }
+    if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(text)) return null;
+    var number = Number(text);
+    return isFinite(number) ? number * multiplier : null;
+  }
+
+  function selectorEligible(selector, view) {
+    if (!selector || !view) return false;
+    var labels = labelMap(view);
+    var terms = selector.split(",");
+    for (var i = 0; i < terms.length; i++) {
+      var match = terms[i].trim().match(/^([^=!<>\s]+)\s*(!=|>=|<=|=)\s*([^=!<>]+?)\s*$/);
+      if (!match || !Object.prototype.hasOwnProperty.call(labels, match[1])) return false;
+      var have = String(labels[match[1]]), want = match[3].trim(), op = match[2];
+      if (!want) return false;
+      var haveQuantity = selectorQuantity(have), wantQuantity = selectorQuantity(want);
+      var bothNumeric = haveQuantity !== null && wantQuantity !== null;
+      if ((op === ">=" || op === "<=") && !bothNumeric &&
+          ((haveQuantity !== null) !== (wantQuantity !== null))) return false;
+      var left = bothNumeric ? haveQuantity : have;
+      var right = bothNumeric ? wantQuantity : want;
+      if (op === "=" && left !== right) return false;
+      if (op === "!=" && left === right) return false;
+      if (op === ">=" && !(left >= right)) return false;
+      if (op === "<=" && !(left <= right)) return false;
+    }
+    return terms.length > 0;
+  }
+
+  function eligibleDeviceIDs(job) {
+    if (!job) return [];
+    if (job.device_id) return [job.device_id];
+    if (!job.selector) return [];
+    return Object.keys(deviceIndex).filter(function (id) {
+      return selectorEligible(job.selector, deviceIndex[id]);
+    });
+  }
+
+  function highlightWorkDevices(job, on) {
+    var ids = on ? eligibleDeviceIDs(job) : [];
+    document.querySelectorAll("#machineRoom [data-device-id]").forEach(function (row) {
+      row.classList.toggle("work-match", ids.indexOf(row.getAttribute("data-device-id")) !== -1);
+    });
+  }
+
   function workRow(view, queuedJob, state) {
     var row = el("div", "row");
     var open = el("button", "open");
@@ -1471,7 +1806,17 @@
     var submitter = view ? view.holder : queuedJob.submitter;
     var device = view ? view.device.id : (queuedJob.device_id || "");
     var isHold = view ? view.kind === "hold" : queuedJob.kind === "hold";
-    open.addEventListener("click", function () { openJob(jobID); });
+    var target = view ? { device_id: view.device.id } : queuedJob;
+    open.setAttribute("data-workspace-kind", "job");
+    open.setAttribute("data-workspace-id", jobID);
+    open.addEventListener("mouseenter", function () { highlightWorkDevices(target, true); });
+    open.addEventListener("mouseleave", function () { highlightWorkDevices(target, false); });
+    open.addEventListener("focus", function () { highlightWorkDevices(target, true); });
+    open.addEventListener("blur", function () { highlightWorkDevices(target, false); });
+    open.addEventListener("click", function () {
+      highlightWorkDevices(target, true);
+      openJob(jobID);
+    });
 
     var l1 = el("div", "line1");
     l1.appendChild(el("span", "pip" + (view ? " busy" : "")));
@@ -1519,73 +1864,299 @@
     return row;
   }
 
-  // ---- detail panel -----------------------------------------------------
-  //
-  // One panel, two kinds of subject, and a one-step back stack so a device
-  // can lead to a job and a job back to its device. The board keeps
-  // updating underneath: the panel re-renders on every refresh, except for
-  // the log pane, which is a live stream and is carried across re-renders
-  // untouched.
+  // ---- entity workspaces ------------------------------------------------
 
-  var panelView = null;   // {kind:"device"|"job", id:string}
-  var panelStack = [];
-  var panelBody = document.getElementById("panelBody");
+  var workspaceView = { kind: "fleet" };
+  var workspaceBody = document.getElementById("workspaceBody");
+  var workspaceHeading = document.getElementById("workspaceHeading");
+  var workspaceTrigger = null;
+  var workspaceTriggerView = null;
+  var overviewScrollY = 0;
+  var overviewMode = "bays";
+  var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+  var jobWorkspaceTab = "details";
+  var jobWorkspaceTabID = null;
 
-  function openDevice(id) { pushView({ kind: "device", id: id }); }
-  function openJob(id) { pushView({ kind: "job", id: id }); }
-
-  function pushView(v) {
-    if (panelView) panelStack.push(panelView);
-    panelView = v;
-    dropLogBlock();
-    panelBody.scrollTop = 0;
-    document.getElementById("panel").classList.remove("hide");
-    document.getElementById("scrim").classList.remove("hide");
-    document.getElementById("panelBack").classList.toggle("hide", !panelStack.length);
-    renderPanel();
+  function routeHash(view) {
+    if (view.kind === "fleet") return "#fleet";
+    if (view.kind === "host") return "#host/" + encodeURIComponent(view.id);
+    if (view.kind === "device") return "#device/" + encodeURIComponent(view.id);
+    return "#job/" + encodeURIComponent(view.id);
   }
 
-  function backView() {
-    if (!panelStack.length) { closePanel(); return; }
-    panelView = panelStack.pop();
-    dropLogBlock();
-    document.getElementById("panelBack").classList.toggle("hide", !panelStack.length);
-    renderPanel();
+  function navigateTo(view, options) {
+    options = options || {};
+    if (view.kind !== "fleet" && workspaceView.kind === "fleet") {
+      overviewScrollY = window.scrollY;
+      overviewMode = fleetMode;
+      workspaceTrigger = document.activeElement;
+      workspaceTriggerView = view;
+    }
+    if (workspaceView.kind !== view.kind || workspaceView.id !== view.id) dropLogBlock();
+    if (view.kind === "job") jobWorkspaceTabFor(view.id);
+    var previousKind = workspaceView.kind;
+    workspaceView = view;
+    if (!options.fromHash && window.location.hash !== routeHash(view)) {
+      if (previousKind !== "fleet" && view.kind !== "fleet") {
+        window.history.replaceState(null, "", routeHash(view));
+        renderWorkspace();
+        return;
+      }
+      window.location.hash = routeHash(view);
+      return;
+    }
+    renderWorkspace();
   }
 
-  function closePanel() {
-    panelView = null;
-    panelStack = [];
-    dropLogBlock();
-    document.getElementById("panel").classList.add("hide");
-    document.getElementById("scrim").classList.add("hide");
+  function routeFromHash() {
+    if (!window.location.hash) window.history.replaceState(null, "", "#fleet");
+    var raw = window.location.hash || "#fleet";
+    if (raw === "#fleet" || raw === "#") { navigateTo({ kind: "fleet" }, { fromHash: true }); return; }
+    var match = /^#(host|device|job)\/(.+)$/.exec(raw);
+    if (!match) {
+      window.history.replaceState(null, "", "#fleet");
+      navigateTo({ kind: "fleet" }, { fromHash: true });
+      return;
+    }
+    try {
+      navigateTo({ kind: match[1], id: decodeURIComponent(match[2]) }, { fromHash: true });
+    } catch (e) {
+      window.history.replaceState(null, "", "#fleet");
+      navigateTo({ kind: "fleet" }, { fromHash: true });
+    }
   }
 
-  // The panel is rebuilt on every state refresh so it never shows a stale
-  // picture — but the reader's scroll position is theirs, not ours, and the
-  // log pane is a live stream that is carried across untouched (see
-  // logBlock).
-  function renderPanel() {
-    if (!panelView) return;
-    var scroll = panelBody.scrollTop;
-    panelBody.textContent = "";
-    document.getElementById("panelKind").textContent =
-      panelView.kind === "device" ? "device" : "job";
-    if (panelView.kind === "device") renderDevicePanel(panelView.id);
-    else renderJobPanel(panelView.id);
-    panelBody.scrollTop = scroll;
+  function openHost(host) { navigateTo({ kind: "host", id: host }); }
+  function openDevice(id) { navigateTo({ kind: "device", id: id }); }
+  function openJob(id) { navigateTo({ kind: "job", id: id }); }
+
+  function closeWorkspace() {
+    resetJobWorkspaceTab();
+    window.history.replaceState(null, "", "#fleet");
+    navigateTo({ kind: "fleet" }, { fromHash: true });
   }
 
-  function renderDevicePanel(id) {
-    document.getElementById("panelTitle").textContent = id;
+  function handleWorkspaceKeydown(e) {
+    if (e.key === "Escape" && workspaceView.kind !== "fleet") closeWorkspace();
+  }
+
+  function jobWorkspaceTabFor(id) {
+    if (jobWorkspaceTabID !== id) {
+      jobWorkspaceTabID = id;
+      jobWorkspaceTab = "details";
+    }
+    return jobWorkspaceTab;
+  }
+
+  function selectJobWorkspaceTab(id, name) {
+    jobWorkspaceTabFor(id);
+    jobWorkspaceTab = name === "output" ? "output" : "details";
+    return jobWorkspaceTab;
+  }
+
+  function resetJobWorkspaceTab() {
+    jobWorkspaceTabID = null;
+    jobWorkspaceTab = "details";
+  }
+
+  function buildJobWorkspaceTabs(id, columns) {
+    var tabs = el("div", "workspace-tabs");
+    tabs.setAttribute("role", "tablist");
+    function select(name, detailButton, outputButton) {
+      name = selectJobWorkspaceTab(id, name);
+      columns.setAttribute("data-tab", name);
+      detailButton.setAttribute("aria-selected", String(name === "details"));
+      outputButton.setAttribute("aria-selected", String(name === "output"));
+    }
+    var detailTab = button(null, "Details", function () { select("details", detailTab, outputTab); });
+    var outputTab = button(null, "Output", function () { select("output", detailTab, outputTab); });
+    detailTab.setAttribute("role", "tab");
+    outputTab.setAttribute("role", "tab");
+    select(jobWorkspaceTabFor(id), detailTab, outputTab);
+    tabs.appendChild(detailTab);
+    tabs.appendChild(outputTab);
+    return tabs;
+  }
+
+  function transitionWorkspace(node) {
+    if (reduceMotion.matches) { node.style.opacity = "1"; return; }
+    node.style.opacity = "0";
+    if (window.anime && anime.animate) {
+      anime.animate(node, { opacity: [0, 1], duration: 180, ease: "out(2)" });
+    } else {
+      node.style.opacity = "1";
+    }
+  }
+
+  function findWorkspaceTrigger() {
+    if (!workspaceTriggerView) return null;
+    var candidates = document.querySelectorAll("[data-workspace-kind][data-workspace-id]");
+    for (var i = 0; i < candidates.length; i++) {
+      if (candidates[i].getAttribute("data-workspace-kind") === workspaceTriggerView.kind &&
+          candidates[i].getAttribute("data-workspace-id") === workspaceTriggerView.id) return candidates[i];
+    }
+    return null;
+  }
+
+  function renderWorkspace(options) {
+    options = options || {};
+    var currentScrollY = window.scrollY;
+    var overview = document.getElementById("fleetOverview");
+    var who = document.getElementById("whoBar");
+    var workspace = document.getElementById("workspace");
+    if (workspaceView.kind === "fleet") {
+      workspace.classList.add("hide");
+      overview.classList.remove("hide");
+      who.classList.remove("hide");
+      setFleetMode(overviewMode);
+      window.scrollTo(0, overviewScrollY);
+      if (!workspaceTrigger || !document.contains(workspaceTrigger)) workspaceTrigger = findWorkspaceTrigger();
+      if (workspaceTrigger) workspaceTrigger.focus();
+      if (!options.preserve) transitionWorkspace(overview);
+      return;
+    }
+
+    overview.classList.add("hide");
+    who.classList.add("hide");
+    workspace.classList.remove("hide");
+    workspaceBody.textContent = "";
+    document.getElementById("workspaceKind").textContent = workspaceView.kind;
+    if (workspaceView.kind === "host") renderHostWorkspace(workspaceView.id);
+    else if (workspaceView.kind === "device") renderDeviceWorkspace(workspaceView.id);
+    else renderJobWorkspace(workspaceView.id);
+    if (options.preserve) {
+      window.scrollTo(0, currentScrollY);
+    } else {
+      window.scrollTo(0, 0);
+      workspaceHeading.focus();
+      transitionWorkspace(workspace);
+    }
+  }
+
+  function renderHostWorkspace(host) {
+    workspaceHeading.textContent = host;
+    var views = Object.keys(deviceIndex).map(function (id) { return deviceIndex[id]; })
+      .filter(function (v) { return (v.device.host || "—") === host; });
+    if (!views.length) {
+      workspaceBody.appendChild(el("p", "under", "This host is no longer in the fleet."));
+      return;
+    }
+    var unhealthy = views.filter(function (v) { return v.device.state === "unhealthy"; });
+    var quiet = views.filter(function (v) { return v.heartbeat_age_seconds > 30; });
+    if (unhealthy.length || quiet.length) {
+      var diagnosis = el("div", "note " + (unhealthy.length ? "alarm" : "caution"));
+      diagnosis.appendChild(el("h3", null, unhealthy.length ? "This host needs intervention." : "This host is not reporting reliably."));
+      diagnosis.appendChild(el("p", null, unhealthy.length
+        ? unhealthy.length + (unhealthy.length === 1 ? " device is" : " devices are") + " out of the pool."
+        : "Nothing has been heard from at least one device for more than 30 seconds."));
+      workspaceBody.appendChild(diagnosis);
+    }
+    var facts = el("dl", "facts");
+    facts.appendChild(el("dt", null, "devices"));
+    facts.appendChild(el("dd", null, String(views.length)));
+    facts.appendChild(el("dt", null, "summary"));
+    facts.appendChild(el("dd", null, hostSummary(views)));
+    var factsBlock = el("div", "block");
+    factsBlock.appendChild(el("h3", "sec", "Host facts"));
+    factsBlock.appendChild(facts);
+    workspaceBody.appendChild(factsBlock);
+
+    var labels = el("dl", "facts");
+    (views[0].device.labels || []).forEach(function (label) {
+      labels.appendChild(el("dt", null, prettyKey(label.key)));
+      var value = el("dd", null, prettyValue(label.key, label.value));
+      value.appendChild(el("span", "src", label.source === "declared" ? "written by hand" : "detected"));
+      value.appendChild(el("span", "src", typeof views[0].oldest_label_age_seconds === "number"
+        ? "seen " + ago(views[0].oldest_label_age_seconds) + " ago" : "age unknown"));
+      labels.appendChild(value);
+    });
+    var labelBlock = el("div", "block");
+    labelBlock.appendChild(el("h3", "sec", "Labels and provenance"));
+    labelBlock.appendChild(labels);
+    workspaceBody.appendChild(labelBlock);
+
+    var devices = el("div", "host-devices");
+    devices.appendChild(el("h3", "sec", "Related devices"));
+    var rows = el("div", "rows");
+    views.forEach(function (v) { rows.appendChild(deviceRow(v, [])); });
+    devices.appendChild(rows);
+    workspaceBody.appendChild(devices);
+
+    var extras = el("div", "host-extras");
+    workspaceBody.appendChild(extras);
+    paintHostWorkspaceExtras(extras, views);
+    fetchHostWorkspaceData(host, views).then(function () {
+      if (workspaceView.kind === "host" && workspaceView.id === host) {
+        paintHostWorkspaceExtras(extras, views);
+      }
+    });
+  }
+
+  function fetchHostWorkspaceData(host, views) {
+    return Promise.all(views.map(function (v) {
+      var id = v.device.id;
+      return fetch("/v1/devices/" + encodeURIComponent(id) + "/describe", { headers: authHeaders() })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) {
+          if (!data) return null;
+          data.fetchedAt = Date.now();
+          describes[id] = data;
+          return data;
+        }).catch(function () { return null; });
+    })).then(function (all) {
+      var seen = {};
+      var recent = [];
+      all.forEach(function (data) {
+        ((data && data.recent_jobs) || []).forEach(function (job) {
+          if (!job || !job.id) return;
+          jobIndex[job.id] = job;
+          if (!seen[job.id]) { seen[job.id] = true; recent.push(job); }
+        });
+      });
+      return recent;
+    });
+  }
+
+  function paintHostWorkspaceExtras(box, views) {
+    box.textContent = "";
+    var sheetData = null;
+    views.some(function (v) {
+      var data = describes[v.device.id];
+      if (data && data.sheet) { sheetData = data; return true; }
+      return false;
+    });
+    if (sheetData) {
+      var usage = el("div", "block");
+      usage.appendChild(el("h3", "sec", "Usage sheet" +
+        (typeof sheetData.sheet_age_seconds === "number" ? " · written " + ago(sheetData.sheet_age_seconds) + " ago" : "")));
+      var sheet = el("div", "sheet");
+      sheet.appendChild(renderMarkdown(sheetData.sheet));
+      usage.appendChild(sheet);
+      box.appendChild(usage);
+    }
+    var deviceIDs = {};
+    views.forEach(function (v) { deviceIDs[v.device.id] = true; });
+    var recent = Object.keys(jobIndex).map(function (id) { return jobIndex[id]; })
+      .filter(function (job) { return job.device_id && deviceIDs[job.device_id]; }).slice(0, 10);
+    if (!recent.length) return;
+    var history = el("div", "block");
+    history.appendChild(el("h3", "sec", "Recent jobs"));
+    recent.forEach(function (job) {
+      history.appendChild(button("jrow", jobStateShort(job.state) + " · " + clip(commandText(job), 160), function () { openJob(job.id); }));
+    });
+    box.appendChild(history);
+  }
+
+  function renderDeviceWorkspace(id) {
+    workspaceHeading.textContent = id;
     var v = deviceIndex[id];
     if (!v) {
-      panelBody.appendChild(el("p", "under", "This device is no longer in the fleet."));
+      workspaceBody.appendChild(el("p", "under", "This device is no longer in the fleet."));
       return;
     }
     var d = v.device;
 
-    panelBody.appendChild(el("p", "big " + d.state, stateWord(d.state)));
+    workspaceBody.appendChild(el("p", "big " + d.state, stateWord(d.state)));
     var under = el("p", "under");
     if (v.holder) {
       under.appendChild(txt((v.kind === "hold" ? "held by " : "running work for ") + v.holder +
@@ -1595,7 +2166,11 @@
     } else if (d.state === "unknown") {
       under.appendChild(txt("nothing heard from this host for " + ago(v.heartbeat_age_seconds)));
     }
-    panelBody.appendChild(under);
+    if (d.host) {
+      under.appendChild(txt(" · "));
+      under.appendChild(button("linkish", d.host, function () { openHost(d.host); }));
+    }
+    workspaceBody.appendChild(under);
 
     // Why it is out of the pool, in full: headline, the host's own words
     // verbatim, and what to do next. This is the reason this panel exists.
@@ -1606,13 +2181,13 @@
       if (reason.body) note.appendChild(el("p", null, reason.body));
       if (reason.quote) note.appendChild(el("span", "quote", reason.quote));
       if (reason.advice) note.appendChild(el("p", null, reason.advice));
-      panelBody.appendChild(note);
+      workspaceBody.appendChild(note);
     } else if (v.heartbeat_age_seconds > 30 && v.holder) {
       var stale = el("div", "note caution");
       stale.appendChild(el("h3", null, "Nobody is confirming this work."));
       stale.appendChild(el("p", null, "The host has not been heard from for " +
         ago(v.heartbeat_age_seconds) + ", so what is shown here may already be over."));
-      panelBody.appendChild(stale);
+      workspaceBody.appendChild(stale);
     }
 
     // Current work, one click away.
@@ -1627,7 +2202,7 @@
       jobBtn.appendChild(el("span", "jcmd mono",
         clip(v.kind === "hold" ? (v.reason || "hold") : (v.command || []).join(" "), 200)));
       block.appendChild(jobBtn);
-      panelBody.appendChild(block);
+      workspaceBody.appendChild(block);
     }
 
     // Actions, gathered rather than scattered.
@@ -1645,7 +2220,7 @@
     }
     if (actionRow.childNodes.length) {
       actions.appendChild(actionRow);
-      panelBody.appendChild(actions);
+      workspaceBody.appendChild(actions);
     }
 
     // The hardware portrait: which machine this actually is, drawn rather
@@ -1656,7 +2231,7 @@
     // things: diagnosis wants the answer first, and this is not the answer —
     // it is what the answer is about. So the alarm keeps the top of the
     // panel, and the portrait heads the facts.
-    panelBody.appendChild(portrait(v));
+    workspaceBody.appendChild(portrait(v));
 
     // Facts, with provenance. describe is painted from cache first so
     // reopening a device never flashes empty, and refetched only when what
@@ -1664,7 +2239,7 @@
     // five-second refresh, and a per-device store query on each of those
     // would be a poll nobody asked for.
     var factsBox = el("div", "block");
-    panelBody.appendChild(factsBox);
+    workspaceBody.appendChild(factsBox);
     var cached = describes[id];
     paintDescribe(factsBox, v, cached);
     if (cached && Date.now() - cached.fetchedAt < 15000) return;
@@ -1674,7 +2249,7 @@
         if (!data) return;
         data.fetchedAt = Date.now();
         describes[id] = data;
-        if (panelView && panelView.kind === "device" && panelView.id === id) {
+        if (workspaceView.kind === "device" && workspaceView.id === id) {
           paintDescribe(factsBox, v, data);
         }
       })
@@ -1711,6 +2286,14 @@
     foot.appendChild(el("span", "tnum", c.when));
     card.appendChild(foot);
     return card;
+  }
+
+  function relatedDeviceViews(v) {
+    var host = v && v.device && v.device.host;
+    if (!host) return [];
+    return Object.keys(deviceIndex).map(function (id) { return deviceIndex[id]; })
+      .filter(function (other) { return other.device.id !== v.device.id && other.device.host === host; })
+      .sort(function (a, b) { return a.device.id.localeCompare(b.device.id); });
   }
 
   function paintDescribe(box, v, data) {
@@ -1762,6 +2345,17 @@
       box.appendChild(sheetBlock);
     }
 
+    var related = relatedDeviceViews(v);
+    if (related.length) {
+      var relatedBlock = el("div", "block");
+      relatedBlock.style.marginTop = "20px";
+      relatedBlock.appendChild(el("h3", "sec", "Related devices"));
+      var relatedRows = el("div", "rows");
+      related.forEach(function (other) { relatedRows.appendChild(deviceRow(other, [])); });
+      relatedBlock.appendChild(relatedRows);
+      box.appendChild(relatedBlock);
+    }
+
     // Recent history answers the question a single state cannot: "has this
     // box been failing?" A device that is ready right now and failed its
     // last three jobs is not the same device as one that is simply ready.
@@ -1786,11 +2380,11 @@
     }
   }
 
-  function renderJobPanel(id) {
-    document.getElementById("panelTitle").textContent = "job " + id.slice(0, 8);
+  function renderJobWorkspace(id) {
+    workspaceHeading.textContent = "job " + id.slice(0, 8);
     var known = jobIndex[id];
     var meta = el("div");
-    panelBody.appendChild(meta);
+    workspaceBody.appendChild(meta);
     if (known) paintJob(meta, id, known, null);
     else meta.appendChild(el("p", "under", "loading…"));
 
@@ -1801,12 +2395,12 @@
       })
       .then(function (v) {
         jobIndex[id] = v.job;
-        if (panelView && panelView.kind === "job" && panelView.id === id) {
+        if (workspaceView.kind === "job" && workspaceView.id === id) {
           paintJob(meta, id, v.job, v.queue_position);
         }
       })
       .catch(function (e) {
-        if (!known && panelView && panelView.kind === "job" && panelView.id === id) {
+        if (!known && workspaceView.kind === "job" && workspaceView.id === id) {
           meta.textContent = "";
           meta.appendChild(el("p", "under", "This job could not be read: " + e.message));
         }
@@ -1815,6 +2409,16 @@
 
   function paintJob(box, id, job, queuePosition) {
     box.textContent = "";
+    var root = box;
+    var columns = el("div", "workspace-columns");
+    var details = el("div", "workspace-details");
+    var output = el("div", "workspace-output");
+    var tabs = buildJobWorkspaceTabs(id, columns);
+    columns.appendChild(details);
+    columns.appendChild(output);
+    root.appendChild(tabs);
+    root.appendChild(columns);
+    box = details;
 
     var stateClass = job.state === "failed" || job.state === "lost" ? "failed"
       : job.state === "succeeded" ? "done" : "busy";
@@ -1916,7 +2520,7 @@
       logBlockJob = id;
       logBlockQueued = job.state === "queued";
     }
-    box.appendChild(logBlock);
+    output.appendChild(logBlock);
   }
 
   function terminalState(s) {
@@ -2171,7 +2775,7 @@
 
   function returnToGate() {
     stopLive();
-    closePanel();
+    closeWorkspace();
     sessionStorage.removeItem("rc_token");
     actOK("");
     gate.classList.remove("hide");
@@ -2207,12 +2811,18 @@
     text.textContent = age < 10 ? "live" : "updated " + ago(age) + " ago";
     live.className = "live" + (age > 30 ? " stale" : age > 10 ? " warn" : "");
     tickFeed();  // the feed's own ages tick with this
+    if (latest && (age === 31 || (age > 31 && age % 30 === 0))) {
+      renderAttention(latest.devices || [], latest);
+    }
   }
 
   function refresh() {
     return fetchState()
       .then(function (state) { lastFetchAt = Date.now(); updateFreshness(); render(state); })
-      .catch(function (e) { fail(e.message); });
+      .catch(function (e) {
+        fail(e.message);
+        if (latest) renderAttention(latest.devices || [], latest);
+      });
   }
 
   // A burst of events (a worker registering ten devices) must not become a
@@ -2294,12 +2904,10 @@
     refresh();
   });
 
-  document.getElementById("panelClose").addEventListener("click", closePanel);
-  document.getElementById("panelBack").addEventListener("click", backView);
-  document.getElementById("scrim").addEventListener("click", closePanel);
-  document.addEventListener("keydown", function (e) {
-    if (e.key === "Escape" && panelView) closePanel();
-  });
+  document.getElementById("workspaceBack").addEventListener("click", closeWorkspace);
+  document.addEventListener("keydown", handleWorkspaceKeydown);
+  window.addEventListener("hashchange", routeFromHash);
+  routeFromHash();
 
   if (token) start();
 })();
