@@ -27,6 +27,8 @@
 # /usr/bin/nvidia-smi injected, and reports "NVIDIA GB10".
 #
 # rc itself is a static CGO_ENABLED=0 binary, so it runs unchanged on any base.
+ARG RC_IMAGE=ghcr.io/mudler/resource-controller:edge
+
 FROM alpine:3.21 AS fetch
 
 # Must track the k3s server within one minor. The fleet runs v1.36.2/v1.36.3,
@@ -39,7 +41,7 @@ RUN apk add --no-cache curl \
       "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" \
  && chmod 0755 /kubectl
 
-FROM ghcr.io/mudler/resource-controller:edge AS rc
+FROM ${RC_IMAGE} AS rc
 
 FROM ubuntu:24.04
 

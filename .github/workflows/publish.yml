@@ -95,8 +95,7 @@ jobs:
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
-      # The worker image is FROM ghcr.io/mudler/resource-controller:edge, so it
-      # must be built after the controller push above lands a fresh :edge.
+      # Pin the worker's rc stage to the exact controller image built above.
       - id: meta-worker
         uses: docker/metadata-action@v5
         with:
@@ -121,6 +120,8 @@ jobs:
           push: true
           tags: ${{ steps.meta-worker.outputs.tags }}
           labels: ${{ steps.meta-worker.outputs.labels }}
+          build-args: |
+            RC_IMAGE=ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: true
