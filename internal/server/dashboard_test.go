@@ -26,6 +26,45 @@ func TestDashboardIsServedWithoutAToken(t *testing.T) {
 	require.NotContains(t, strings.ToLower(string(body)), "bearer ct")
 }
 
+func TestDashboardServesVendoredAnime(t *testing.T) {
+	ts, _, _, _ := newServer(t)
+
+	resp, err := ts.Client().Get(ts.URL + "/dashboard/anime.umd.min.js")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, "text/javascript; charset=utf-8", resp.Header.Get("Content-Type"))
+	require.Equal(t, "public, max-age=31536000, immutable", resp.Header.Get("Cache-Control"))
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Contains(t, string(body), "Anime.js - UMD minified bundle")
+	require.Contains(t, string(body), "t.animate=")
+	require.Contains(t, string(body), "t.stagger=")
+}
+
+func TestDashboardRejectsUnknownAssetPaths(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "source map", path: "/dashboard/anime.umd.min.js.map"},
+		{name: "trailing slash", path: "/dashboard/anime.umd.min.js/"},
+		{name: "extra suffix", path: "/dashboard/anime.umd.min.jsx"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts, _, _, _ := newServer(t)
+
+			resp, err := ts.Client().Get(ts.URL + tt.path)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+			require.Equal(t, http.StatusNotFound, resp.StatusCode)
+		})
+	}
+}
+
 // dashboardBody fetches the page exactly as a browser would, so every
 // assertion below is made against the bytes that actually ship rather than
 // against the file on disk.
