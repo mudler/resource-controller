@@ -79,11 +79,70 @@
 
   main { padding:26px 24px 40px; max-width:1240px; margin:0 auto; }
 
-  /* Two columns: the fleet is what the eye lands on, and the activity feed
-     sits beside it as peripheral vision rather than competing for the
-     centre. One column below 980px, feed last. */
-  .board { display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:var(--sp-6); align-items:start; }
-  @media (max-width:980px) { .board { grid-template-columns:minmax(0,1fr); } }
+  .fleet-head { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:18px 28px;
+                align-items:end; margin-bottom:26px; }
+  .fleet-statement { font-family:ui-serif,Georgia,Cambria,"Times New Roman",serif;
+                     font-size:clamp(25px,3.1vw,38px); line-height:1.16;
+                     letter-spacing:-.025em; margin:0; max-width:850px; }
+  .fleet-statement b { font-weight:650; }
+  .fleet-statement .bad { color:var(--bad); }
+  .fleet-facts { display:flex; gap:7px 24px; flex-wrap:wrap; margin-top:12px;
+                 color:var(--muted); font-size:13.5px; font-variant-numeric:tabular-nums; }
+  .fleet-fact { display:flex; gap:6px; align-items:baseline; }
+  .fleet-fact b { color:var(--ink); font-weight:600; }
+  .fleet-fact.warn, .fleet-fact.warn b { color:var(--warn); }
+  .fleet-mode { display:inline-flex; align-self:start; padding:3px; border:1px solid var(--line);
+                background:var(--sunk); border-radius:9px; }
+  .fleet-mode button { border:0; background:transparent; color:var(--muted); font:inherit;
+                       font-size:12.5px; padding:5px 10px; border-radius:6px; cursor:pointer; }
+  .fleet-mode button[aria-pressed="true"] { color:var(--ink); background:var(--panel);
+                                             box-shadow:var(--shadow); }
+  .overview-grid.has-attention { display:grid; grid-template-columns:minmax(0,1fr) 330px;
+                                 gap:var(--sp-6); align-items:start; }
+  .machine-room { min-width:0; }
+  .bay { margin-bottom:22px; border:1px solid var(--line); border-radius:10px;
+         background:var(--panel); box-shadow:var(--shadow); overflow:hidden; }
+  .bay-head { display:flex; align-items:baseline; justify-content:space-between; gap:var(--sp-4);
+              padding:12px 15px; background:var(--sunk); border-bottom:1px solid var(--line); }
+  .bay-name { font-size:14px; font-weight:650; letter-spacing:-.005em; }
+  .bay-facts { font-size:12px; color:var(--muted); text-align:right; }
+  .bay-body .rows { border:0; border-radius:0; box-shadow:none; }
+  .machine-room.matrix { border:1px solid var(--line); border-radius:10px; overflow:auto;
+                         background:var(--panel); max-height:min(70vh,760px); }
+  .matrix-table { border-collapse:collapse; width:100%; min-width:760px; font-size:13px; }
+  .matrix-table th { position:sticky; top:0; z-index:2; background:var(--sunk); color:var(--muted);
+                     font-size:12px; font-weight:600; text-align:left; padding:9px 12px;
+                     border-bottom:1px solid var(--line); }
+  .matrix-table td { border-top:1px solid var(--line); padding:10px 12px; vertical-align:top; }
+  .matrix-table tbody tr:first-child td { border-top:0; }
+  .matrix-table tr.unhealthy { background:var(--bad-bg); }
+  .matrix-table .matrix-open { border:0; background:none; color:inherit; font:inherit;
+                               padding:0; text-align:left; cursor:pointer; }
+  .matrix-table .matrix-id { display:block; font-weight:650; }
+  .matrix-table .matrix-meta { display:block; color:var(--muted); font-size:12px; margin-top:2px; }
+  [data-device-id].work-match { outline:2px solid var(--accent); outline-offset:-2px;
+                                background:var(--warn-bg); }
+  .attention { border:1px solid var(--bad-line); border-radius:10px; background:var(--panel);
+               box-shadow:var(--shadow); overflow:hidden; }
+  .attention-head { padding:12px 14px; border-bottom:1px solid var(--bad-line); }
+  .attention-head h2 { margin:0; font-size:15px; color:var(--bad); }
+  .incident { padding:12px 14px; border-bottom:1px solid var(--line); }
+  .incident:last-child { border-bottom:0; }
+  .incident b { display:block; font-size:13.5px; }
+  .incident span { display:block; color:var(--muted); font-size:12.5px; margin-top:2px; }
+  .changes { border-top:1px solid var(--line); padding-top:12px; margin-top:12px; }
+  .work-strip { margin-top:30px; }
+  @media (max-width:980px) {
+    .overview-grid.has-attention { display:flex; flex-direction:column; }
+    .overview-grid.has-attention .attention { order:-1; width:100%; }
+  }
+  @media (max-width:680px) {
+    main { padding-left:14px; padding-right:14px; }
+    .fleet-head { grid-template-columns:minmax(0,1fr); }
+    .fleet-mode { justify-self:start; }
+    .bay-head { display:block; }
+    .bay-facts { text-align:left; margin-top:3px; }
+  }
 
   /* Summary line: the whole fleet in one sentence, so a glance needs no
      counting. It is the first thing read and usually the only thing. */
@@ -422,23 +481,35 @@
 </div>
 
 <main id="app" class="hide">
-  <div class="board">
-    <div>
-      <p class="summary" id="summary"></p>
-      <p class="sub" id="sub"></p>
-      <div id="fleet"></div>
-      <section id="workSection" class="hide">
-        <h2 class="sec">Work</h2>
-        <div id="work"></div>
-      </section>
+  <section id="fleetOverview">
+    <div class="fleet-head">
+      <div>
+        <p class="fleet-statement" id="fleetSummary"></p>
+        <div class="fleet-facts" id="fleetFacts"></div>
+      </div>
+      <div class="fleet-mode" id="fleetMode" role="group" aria-label="Fleet display">
+        <button type="button" data-mode="bays" aria-pressed="true">Bays</button>
+        <button type="button" data-mode="matrix" aria-pressed="false">Matrix</button>
+      </div>
     </div>
-    <aside>
-      <h2 class="sec">Activity</h2>
-      <div class="feed" id="feed"></div>
-      <p class="feed-note">Recorded while this page is open — the controller keeps no history to
-        replay, so this starts fresh on every reload.</p>
-    </aside>
-  </div>
+    <div class="overview-grid" id="overviewGrid">
+      <div class="machine-room" id="machineRoom"></div>
+      <aside class="attention hide" id="attentionRegion" aria-labelledby="attentionTitle">
+        <div class="attention-head"><h2 id="attentionTitle">Needs attention</h2></div>
+        <div id="attentionItems"></div>
+        <div class="changes">
+          <h3 class="sec">Changes in this tab</h3>
+          <div class="feed" id="feed"></div>
+          <p class="feed-note">The controller keeps no event history to replay, so this starts
+            fresh on every reload.</p>
+        </div>
+      </aside>
+    </div>
+    <section class="work-strip hide" id="workStrip">
+      <h2 class="sec">Queued and active work</h2>
+      <div id="work"></div>
+    </section>
+  </section>
   <form class="who-bar" id="whoBar">
     <label for="who">You are</label>
     <input id="who" type="text" autocomplete="off" placeholder="alice@lab">
@@ -519,6 +590,7 @@
   </svg>
 </template>
 
+<script src="/dashboard/anime.umd.min.js"></script>
 <script>
 (function () {
   // Credentials, in one place.
@@ -1252,13 +1324,37 @@
     noteDeviceChanges(views);
     if (first) seedFeed(state);
 
-    renderSummary(state, views);
-    renderFleet(views, state);
-    renderWork(state, views);
+    renderOverview(state);
     if (panelView) renderPanel();
   }
 
-  function renderSummary(state, views) {
+  var fleetMode = "bays";
+
+  function setFleetMode(mode) {
+    fleetMode = mode !== "matrix" ? "bays" : "matrix";
+    document.querySelectorAll("#fleetMode button").forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b.getAttribute("data-mode") === fleetMode));
+    });
+    if (latest) renderMachineRoom(latest.devices || [], latest);
+  }
+
+  document.querySelectorAll("#fleetMode button").forEach(function (b) {
+    b.addEventListener("click", function () { setFleetMode(b.getAttribute("data-mode")); });
+  });
+
+  function fleetFreshness(views) {
+    var missing = 0, future = 0, oldest = null;
+    views.forEach(function (v) {
+      var age = v.oldest_label_age_seconds;
+      if (typeof age !== "number" || !isFinite(age)) missing++;
+      else if (age < 0) future++;
+      else if (oldest === null || age > oldest) oldest = age;
+    });
+    return { missing: missing, future: future, oldest: oldest };
+  }
+
+  function renderOverview(state) {
+    var views = state.devices || [];
     var free = 0, busy = 0, down = 0, quiet = 0;
     views.forEach(function (v) {
       if (v.device.state === "unhealthy") down++;
@@ -1266,46 +1362,79 @@
       else if (v.device.state === "ready") free++;
       else quiet++;
     });
-    var sum = document.getElementById("summary");
+    var sum = document.getElementById("fleetSummary");
     sum.textContent = "";
     if (!views.length) {
-      sum.textContent = "No devices yet.";
+      sum.textContent = "The fleet is waiting for its first device.";
     } else {
       sum.appendChild(el("b", null, String(free)));
-      sum.appendChild(txt(free === 1 ? " device free, " : " devices free, "));
+      sum.appendChild(txt(free === 1 ? " device is free; " : " devices are free; "));
       sum.appendChild(el("b", null, String(busy)));
-      sum.appendChild(txt(" in use"));
-      if (quiet) sum.appendChild(txt(", " + quiet + " not reporting"));
+      sum.appendChild(txt(busy === 1 ? " is occupied" : " are occupied"));
+      if (quiet) sum.appendChild(txt("; " + quiet + (quiet === 1 ? " is not reporting" : " are not reporting")));
       if (down) {
-        sum.appendChild(txt(", "));
-        sum.appendChild(el("span", "bad", down + " out of the pool"));
+        sum.appendChild(txt("; "));
+        sum.appendChild(el("span", "bad", down + (down === 1 ? " needs intervention" : " need intervention")));
       }
       sum.appendChild(txt("."));
     }
 
-    // The queue, with the one fact a snapshot cannot show: that something
-    // has been waiting far longer than it should.
-    var sub = document.getElementById("sub");
-    sub.textContent = "";
+    var facts = document.getElementById("fleetFacts");
+    facts.textContent = "";
     var queued = state.queued || [];
     var waits = state.queued_waiting_seconds || {};
-    if (!queued.length) {
-      sub.textContent = "Nothing waiting.";
-      return;
+    var longest = null;
+    queued.forEach(function (j) {
+      var waited = waits[j.id];
+      if (typeof waited === "number" && (longest === null || waited > longest)) longest = waited;
+    });
+    var queueFact = el("span", "fleet-fact" + (longest !== null && longest >= 600 ? " warn" : ""));
+    queueFact.appendChild(el("b", null, String(queued.length)));
+    queueFact.appendChild(txt(queued.length === 1 ? " job queued" : " jobs queued"));
+    if (longest !== null) queueFact.appendChild(txt(" · longest " + ago(longest)));
+    facts.appendChild(queueFact);
+
+    var fresh = fleetFreshness(views);
+    if (fresh.missing) {
+      var unknown = el("span", "fleet-fact warn");
+      unknown.appendChild(el("b", null, "Freshness unknown"));
+      unknown.appendChild(txt(" · " + fresh.missing + (fresh.missing === 1 ? " device" : " devices") +
+        " did not report label age"));
+      facts.appendChild(unknown);
+    } else if (fresh.oldest !== null) {
+      var oldest = el("span", "fleet-fact" + (fresh.oldest > 3600 ? " warn" : ""));
+      oldest.appendChild(el("b", null, "Oldest labels"));
+      oldest.appendChild(txt(" · " + ago(fresh.oldest)));
+      facts.appendChild(oldest);
     }
-    var longest = 0;
-    queued.forEach(function (j) { longest = Math.max(longest, waits[j.id] || 0); });
-    sub.appendChild(txt(queued.length + (queued.length === 1 ? " job waiting" : " jobs waiting")));
-    if (longest >= 600) {
-      sub.appendChild(txt(" — "));
-      sub.appendChild(el("span", "long", "one for " + ago(longest)));
-      sub.appendChild(txt("."));
-    } else {
-      sub.appendChild(txt(", longest " + ago(longest) + "."));
+    if (fresh.future) {
+      var future = el("span", "fleet-fact warn");
+      future.appendChild(el("b", null, "Future clock warning"));
+      future.appendChild(txt(" · " + fresh.future + (fresh.future === 1 ? " device reports" : " devices report") +
+        " label time ahead of the controller"));
+      facts.appendChild(future);
     }
+
+    renderMachineRoom(views, state);
+    renderAttention(views, state);
+    renderWorkStrip(state, views);
   }
 
-  function renderFleet(views, state) {
+  function deviceSeverity(state) {
+    if (state === "unhealthy") return 4;
+    if (state === "unknown") return 3;
+    if (state === "busy") return 2;
+    if (state === "ready") return 1;
+    return 0;
+  }
+
+  function hostSeverity(views) {
+    var severity = 0;
+    views.forEach(function (v) { severity = Math.max(severity, deviceSeverity(v.device.state)); });
+    return severity;
+  }
+
+  function renderMachineRoom(views, state) {
     var waitingBy = {};
     (state.queued || []).forEach(function (j) {
       if (!j.device_id) return;
@@ -1315,12 +1444,13 @@
       });
     });
 
-    var fleet = document.getElementById("fleet");
-    fleet.textContent = "";
+    var room = document.getElementById("machineRoom");
+    room.textContent = "";
+    room.classList.toggle("matrix", fleetMode === "matrix");
     if (!views.length) {
       var e = el("div", "empty", "No devices are registered.");
       e.appendChild(el("div", "hint", "Start a worker on a device host and it will appear here."));
-      fleet.appendChild(e);
+      room.appendChild(e);
       return;
     }
 
@@ -1329,25 +1459,100 @@
       var h = v.device.host || "—";
       (byHost[h] = byHost[h] || []).push(v);
     });
-    Object.keys(byHost).sort().forEach(function (h) {
-      var sec = el("div", "host");
-      var hd = el("div", "host-name");
-      hd.appendChild(el("span", null, h));
-      var facts = hostSummary(byHost[h]);
-      if (facts) hd.appendChild(el("span", "host-note", facts));
-      sec.appendChild(hd);
-      var rows = el("div", "rows");
-      byHost[h].sort(function (a, b) { return a.device.id < b.device.id ? -1 : 1; })
-        .forEach(function (v) { rows.appendChild(deviceRow(v, waitingBy[v.device.id] || [])); });
-      sec.appendChild(rows);
-      fleet.appendChild(sec);
+
+    var hosts = Object.keys(byHost).sort(function (a, b) {
+      return hostSeverity(byHost[b]) - hostSeverity(byHost[a]) || a.localeCompare(b);
     });
+    if (fleetMode === "matrix") {
+      var table = el("table", "matrix-table");
+      var head = el("thead"), headRow = el("tr");
+      ["Device", "Work", "State", "Actions"].forEach(function (s) { headRow.appendChild(el("th", null, s)); });
+      head.appendChild(headRow);
+      table.appendChild(head);
+      var body = el("tbody");
+      var all = views.slice();
+      all.sort(function (a, b) {
+        var ah = a.device.host || "—", bh = b.device.host || "—";
+        return hostSeverity(byHost[bh]) - hostSeverity(byHost[ah]) ||
+          ah.localeCompare(bh) || a.device.id.localeCompare(b.device.id);
+      });
+      all.forEach(function (v) { body.appendChild(matrixDeviceRow(v, waitingBy[v.device.id] || [])); });
+      table.appendChild(body);
+      room.appendChild(table);
+      return;
+    }
+
+    hosts.forEach(function (h) {
+      var sec = el("section", "bay");
+      var hd = el("header", "bay-head");
+      hd.appendChild(el("span", "bay-name mono", h));
+      var facts = hostSummary(byHost[h]);
+      var heartbeat = null;
+      byHost[h].forEach(function (v) {
+        if (typeof v.heartbeat_age_seconds === "number" &&
+            (heartbeat === null || v.heartbeat_age_seconds > heartbeat)) heartbeat = v.heartbeat_age_seconds;
+      });
+      if (heartbeat !== null) facts += " · heartbeat " + ago(heartbeat) + " ago";
+      if (facts) hd.appendChild(el("span", "bay-facts", facts));
+      sec.appendChild(hd);
+      var bayBody = el("div", "bay-body");
+      var rows = el("div", "rows");
+      byHost[h].sort(function (a, b) { return a.device.id.localeCompare(b.device.id); })
+        .forEach(function (v) { rows.appendChild(deviceRow(v, waitingBy[v.device.id] || [])); });
+      bayBody.appendChild(rows);
+      sec.appendChild(bayBody);
+      room.appendChild(sec);
+    });
+  }
+
+  function matrixDeviceRow(v, queuedFor) {
+    var d = v.device;
+    var row = el("tr", d.state);
+    row.setAttribute("data-device-id", d.id);
+
+    var deviceCell = el("td");
+    var open = el("button", "matrix-open");
+    open.type = "button";
+    open.addEventListener("click", function () { openDevice(d.id); });
+    open.appendChild(el("span", "matrix-id mono", d.id));
+    open.appendChild(el("span", "matrix-meta", (d.host || "—") + (specLine(v) ? " · " + specLine(v) : "")));
+    deviceCell.appendChild(open);
+    row.appendChild(deviceCell);
+
+    var work = el("td");
+    if (v.holder) {
+      work.appendChild(el("span", null, v.holder));
+      work.appendChild(el("span", "matrix-meta mono", (v.job_id ? "job " + v.job_id.slice(0, 8) + " · " : "") + ago(v.elapsed_seconds)));
+    } else if (queuedFor.length) {
+      work.appendChild(el("span", null, queuedFor.length + (queuedFor.length === 1 ? " named job waiting" : " named jobs waiting")));
+      work.appendChild(el("span", "matrix-meta", "longest " + ago(Math.max.apply(null, queuedFor.map(function (j) { return j.waited; })))));
+    } else {
+      work.appendChild(el("span", "matrix-meta", "No assigned work"));
+    }
+    row.appendChild(work);
+
+    var state = el("td");
+    state.appendChild(el("span", "pill " + d.state, stateWord(d.state)));
+    if (d.state === "unhealthy") state.appendChild(el("span", "matrix-meta", explain(v.quarantine_reason).headline));
+    row.appendChild(state);
+
+    var actions = el("td");
+    if (d.state === "unhealthy") {
+      actions.appendChild(button("act danger", "Return to pool", function () {
+        clearDevice(d.id, v.quarantine_reason);
+      }));
+    } else {
+      actions.appendChild(button("act", "Open", function () { openDevice(d.id); }));
+    }
+    row.appendChild(actions);
+    return row;
   }
 
   function deviceRow(v, queuedFor) {
     var d = v.device;
     var down = d.state === "unhealthy";
     var row = el("div", "row" + (down ? " down" : ""));
+    row.setAttribute("data-device-id", d.id);
 
     // The rail runs the full height of the row, outside the button, so it is
     // a property of the row rather than of anything clickable inside it.
@@ -1382,6 +1587,7 @@
       var l2 = el("div", "line2");
       l2.appendChild(el("span", "who", v.holder));
       if (v.kind === "hold") l2.appendChild(txt(" is holding it" + (v.reason ? " — " + clip(v.reason, 60) : "")));
+      if (v.job_id) l2.appendChild(el("span", "mono", " · job " + v.job_id.slice(0, 8)));
       l2.appendChild(el("span", "dur", " · " + ago(v.elapsed_seconds)));
       body.appendChild(l2);
     }
@@ -1438,14 +1644,68 @@
     return row;
   }
 
+  function renderAttention(views, state) {
+    var region = document.getElementById("attentionRegion");
+    var items = document.getElementById("attentionItems");
+    var incidents = [];
+
+    views.forEach(function (v) {
+      var d = v.device;
+      if (d.state === "unhealthy") {
+        incidents.push({
+          title: (d.name || d.id) + " is out of the pool",
+          detail: explain(v.quarantine_reason).headline,
+          open: function () { openDevice(d.id); }
+        });
+      } else if (d.state === "unknown" && v.heartbeat_age_seconds > 30) {
+        incidents.push({
+          title: (d.name || d.id) + " is not reporting",
+          detail: "Nothing heard for " + ago(v.heartbeat_age_seconds) + ". Check the worker on " + (d.host || "its host") + ".",
+          open: function () { openDevice(d.id); }
+        });
+      }
+    });
+    (state.queued || []).forEach(function (j) {
+      var waited = (state.queued_waiting_seconds || {})[j.id];
+      if (typeof waited === "number" && waited >= 600) {
+        incidents.push({
+          title: "A queued job has waited " + ago(waited),
+          detail: j.device_id ? "It names " + j.device_id + "." : "It is waiting for " + (j.selector || "an eligible device") + ".",
+          open: function () { openJob(j.id); }
+        });
+      }
+    });
+    if (lastFetchAt && Date.now() - lastFetchAt > 30000) {
+      incidents.push({
+        title: "The controller connection is stale",
+        detail: "The last fleet snapshot arrived " + ago(Math.floor((Date.now() - lastFetchAt) / 1000)) + " ago. Polling will keep trying."
+      });
+    }
+
+    items.textContent = "";
+    incidents.forEach(function (incident) {
+      var item = incident.open ? el("button", "incident ev-open") : el("div", "incident");
+      if (incident.open) {
+        item.type = "button";
+        item.addEventListener("click", incident.open);
+      }
+      item.appendChild(el("b", null, incident.title));
+      item.appendChild(el("span", null, incident.detail));
+      items.appendChild(item);
+    });
+    var visible = incidents.length > 0;
+    region.classList.toggle("hide", !visible);
+    document.getElementById("overviewGrid").classList.toggle("has-attention", visible);
+  }
+
   // Work is the second half of the board: what is running right now and
   // what is waiting for a device, each one click from its own detail and
   // its live output. Running work is read off the device views because
   // their elapsed time is server-measured; queued work off the queue, for
   // the same reason.
-  function renderWork(state, views) {
+  function renderWorkStrip(state, views) {
     var box = document.getElementById("work");
-    var section = document.getElementById("workSection");
+    var section = document.getElementById("workStrip");
     box.textContent = "";
 
     var running = views.filter(function (v) { return v.job_id; });
@@ -1462,6 +1722,63 @@
     box.appendChild(rows);
   }
 
+  // This mirrors the controller's supported selector subset. A highlight is
+  // a scheduling claim, so malformed expressions and facts a device did not
+  // report are never treated as eligibility.
+  function selectorQuantity(value) {
+    var text = String(value).trim();
+    if (!text) return null;
+    var multiplier = 1;
+    var suffix = text.charAt(text.length - 1).toUpperCase();
+    var powers = { K: 1024, M: 1048576, G: 1073741824, T: 1099511627776 };
+    if (powers[suffix]) {
+      multiplier = powers[suffix];
+      text = text.slice(0, -1).trim();
+    }
+    if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(text)) return null;
+    var number = Number(text);
+    return isFinite(number) ? number * multiplier : null;
+  }
+
+  function selectorEligible(selector, view) {
+    if (!selector || !view) return false;
+    var labels = labelMap(view);
+    var terms = selector.split(",");
+    for (var i = 0; i < terms.length; i++) {
+      var match = terms[i].trim().match(/^([^=!<>\s]+)\s*(!=|>=|<=|=)\s*([^=!<>]+?)\s*$/);
+      if (!match || !Object.prototype.hasOwnProperty.call(labels, match[1])) return false;
+      var have = String(labels[match[1]]), want = match[3].trim(), op = match[2];
+      if (!want) return false;
+      var haveQuantity = selectorQuantity(have), wantQuantity = selectorQuantity(want);
+      var bothNumeric = haveQuantity !== null && wantQuantity !== null;
+      if ((op === ">=" || op === "<=") && !bothNumeric &&
+          ((haveQuantity !== null) !== (wantQuantity !== null))) return false;
+      var left = bothNumeric ? haveQuantity : have;
+      var right = bothNumeric ? wantQuantity : want;
+      if (op === "=" && left !== right) return false;
+      if (op === "!=" && left === right) return false;
+      if (op === ">=" && !(left >= right)) return false;
+      if (op === "<=" && !(left <= right)) return false;
+    }
+    return terms.length > 0;
+  }
+
+  function eligibleDeviceIDs(job) {
+    if (!job) return [];
+    if (job.device_id) return [job.device_id];
+    if (!job.selector) return [];
+    return Object.keys(deviceIndex).filter(function (id) {
+      return selectorEligible(job.selector, deviceIndex[id]);
+    });
+  }
+
+  function highlightWorkDevices(job, on) {
+    var ids = on ? eligibleDeviceIDs(job) : [];
+    document.querySelectorAll("#machineRoom [data-device-id]").forEach(function (row) {
+      row.classList.toggle("work-match", ids.indexOf(row.getAttribute("data-device-id")) !== -1);
+    });
+  }
+
   function workRow(view, queuedJob, state) {
     var row = el("div", "row");
     var open = el("button", "open");
@@ -1471,7 +1788,15 @@
     var submitter = view ? view.holder : queuedJob.submitter;
     var device = view ? view.device.id : (queuedJob.device_id || "");
     var isHold = view ? view.kind === "hold" : queuedJob.kind === "hold";
-    open.addEventListener("click", function () { openJob(jobID); });
+    var target = view ? { device_id: view.device.id } : queuedJob;
+    open.addEventListener("mouseenter", function () { highlightWorkDevices(target, true); });
+    open.addEventListener("mouseleave", function () { highlightWorkDevices(target, false); });
+    open.addEventListener("focus", function () { highlightWorkDevices(target, true); });
+    open.addEventListener("blur", function () { highlightWorkDevices(target, false); });
+    open.addEventListener("click", function () {
+      highlightWorkDevices(target, true);
+      openJob(jobID);
+    });
 
     var l1 = el("div", "line1");
     l1.appendChild(el("span", "pip" + (view ? " busy" : "")));
@@ -2207,12 +2532,18 @@
     text.textContent = age < 10 ? "live" : "updated " + ago(age) + " ago";
     live.className = "live" + (age > 30 ? " stale" : age > 10 ? " warn" : "");
     tickFeed();  // the feed's own ages tick with this
+    if (latest && (age === 31 || (age > 31 && age % 30 === 0))) {
+      renderAttention(latest.devices || [], latest);
+    }
   }
 
   function refresh() {
     return fetchState()
       .then(function (state) { lastFetchAt = Date.now(); updateFreshness(); render(state); })
-      .catch(function (e) { fail(e.message); });
+      .catch(function (e) {
+        fail(e.message);
+        if (latest) renderAttention(latest.devices || [], latest);
+      });
   }
 
   // A burst of events (a worker registering ten devices) must not become a

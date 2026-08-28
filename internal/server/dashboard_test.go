@@ -1,8 +1,10 @@
 package server_test
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
+	"os/exec"
 	"regexp"
 	"strings"
 	"testing"
@@ -251,6 +253,126 @@ func TestDashboardNeverAssignsMarkup(t *testing.T) {
 		require.NotContains(t, body, sink,
 			"every user-controlled string on this page must be inserted as a text node")
 	}
+}
+
+// dashboardFunction returns a complete function declaration from the
+// JavaScript that is actually served. The dashboard keeps these helpers
+// deliberately small and free of template literals, so matching braces is
+// enough to isolate them for execution by Node.
+func dashboardFunction(t *testing.T, body, name string) string {
+	t.Helper()
+	start := strings.Index(body, "function "+name+"(")
+	require.NotEqual(t, -1, start, "dashboard must ship function %s", name)
+	open := strings.Index(body[start:], "{")
+	require.NotEqual(t, -1, open)
+	open += start
+	depth := 0
+	for i := open; i < len(body); i++ {
+		switch body[i] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return body[start : i+1]
+			}
+		}
+	}
+	t.Fatalf("function %s has no closing brace", name)
+	return ""
+}
+
+func runDashboardJS(t *testing.T, functions []string, expression string, out any) {
+	t.Helper()
+	body := dashboardBody(t)
+	var source strings.Builder
+	for _, name := range functions {
+		source.WriteString(dashboardFunction(t, body, name))
+		source.WriteByte('\n')
+	}
+	source.WriteString("process.stdout.write(JSON.stringify(")
+	source.WriteString(expression)
+	source.WriteString("));")
+	output, err := exec.Command("node", "-e", source.String()).CombinedOutput()
+	require.NoError(t, err, "dashboard JavaScript failed: %s", output)
+	require.NoError(t, json.Unmarshal(output, out), "dashboard JavaScript returned %q", output)
+}
+
+func TestDashboardFleetOverview(t *testing.T) {
+	body := dashboardBody(t)
+	for _, id := range []string{
+		`id="fleetOverview"`, `id="fleetSummary"`, `id="fleetFacts"`,
+		`id="machineRoom"`, `id="attentionRegion"`, `id="workStrip"`, `id="fleetMode"`,
+	} {
+		require.Contains(t, body, id)
+	}
+	for _, fn := range []string{"renderOverview", "renderMachineRoom", "renderAttention", "renderWorkStrip"} {
+		require.Contains(t, body, "function "+fn+"(")
+	}
+	require.Contains(t, body, `<script src="/dashboard/anime.umd.min.js"></script>`)
+	require.NotContains(t, body, `class="board"`)
+	require.NotContains(t, strings.ToLower(body), "topology")
+}
+
+func TestDashboardMachineRoom(t *testing.T) {
+	body := dashboardBody(t)
+	require.Contains(t, body, "function hostSeverity(views)")
+	require.Contains(t, body, "hostSeverity(byHost[b]) - hostSeverity(byHost[a])")
+	require.Contains(t, body, `a.device.id.localeCompare(b.device.id)`)
+	require.Contains(t, body, `stateWord(d.state)`)
+	require.Contains(t, body, `v.quarantine_reason`)
+	require.Contains(t, body, `waitingBy[v.device.id]`)
+}
+
+func TestDashboardMatrixMode(t *testing.T) {
+	body := dashboardBody(t)
+	require.Contains(t, body, "function setFleetMode(mode)")
+	require.Contains(t, body, `mode !== "matrix" ? "bays" : "matrix"`)
+	require.Contains(t, body, `room.classList.toggle("matrix", fleetMode === "matrix")`)
+	require.Contains(t, body, `views.slice()`)
+	require.Contains(t, body, `el("table", "matrix-table")`)
+	require.Contains(t, body, `data-device-id`)
+}
+
+func TestDashboardFleetFreshness(t *testing.T) {
+	tests := []struct {
+		name  string
+		views string
+		want  map[string]any
+	}{
+		{name: "all missing", views: `[{}, {"oldest_label_age_seconds":null}]`, want: map[string]any{"missing": float64(2), "future": float64(0), "oldest": nil}},
+		{name: "mixed missing and known", views: `[{"oldest_label_age_seconds":41}, {}]`, want: map[string]any{"missing": float64(1), "future": float64(0), "oldest": float64(41)}},
+		{name: "future only", views: `[{"oldest_label_age_seconds":-1}, {"oldest_label_age_seconds":-9}]`, want: map[string]any{"missing": float64(0), "future": float64(2), "oldest": nil}},
+		{name: "mixed missing future and known", views: `[{"oldest_label_age_seconds":73}, {}, {"oldest_label_age_seconds":-2}]`, want: map[string]any{"missing": float64(1), "future": float64(1), "oldest": float64(73)}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got map[string]any
+			runDashboardJS(t, []string{"fleetFreshness"}, "fleetFreshness("+tt.views+")", &got)
+			require.Equal(t, tt.want, got)
+		})
+	}
+	body := dashboardBody(t)
+	require.Contains(t, body, `if (fresh.missing) {`)
+	require.Contains(t, body, `if (fresh.future) {`)
+}
+
+func TestDashboardWorkEligibilityMatchesControllerSelectorSemantics(t *testing.T) {
+	expression := `(() => {
+deviceIndex = {
+  large:{device:{labels:[{key:"vram",value:"80G",source:"detected"}]}},
+  small:{device:{labels:[{key:"vram",value:"24G",source:"detected"}]}},
+  unknown:{device:{labels:[{key:"model",value:"h100",source:"detected"}]}}
+};
+return [
+  eligibleDeviceIDs({selector:"vram>=40G"}),
+  eligibleDeviceIDs({selector:"vram<=40G"}),
+  eligibleDeviceIDs({selector:"vendor!=amd"})
+];
+})()`
+	var got [][]string
+	runDashboardJS(t, []string{"labelMap", "selectorQuantity", "selectorEligible", "eligibleDeviceIDs"}, expression, &got)
+	require.Equal(t, [][]string{{"large"}, {"small"}, {}}, got)
 }
 
 // glyphTemplate matches one of the device glyphs declared as static markup.
