@@ -298,6 +298,24 @@ func runDashboardJS(t *testing.T, functions []string, expression string, out any
 	require.NoError(t, json.Unmarshal(output, out), "dashboard JavaScript returned %q", output)
 }
 
+func runDashboardJSWithPrelude(t *testing.T, functions []string, prelude, expression string, out any) {
+	t.Helper()
+	body := dashboardBody(t)
+	var source strings.Builder
+	source.WriteString(prelude)
+	source.WriteByte('\n')
+	for _, name := range functions {
+		source.WriteString(dashboardFunction(t, body, name))
+		source.WriteByte('\n')
+	}
+	source.WriteString("Promise.resolve(")
+	source.WriteString(expression)
+	source.WriteString(").then(function (value) { process.stdout.write(JSON.stringify(value)); })")
+	output, err := exec.Command("node", "-e", source.String()).CombinedOutput()
+	require.NoError(t, err, "dashboard JavaScript failed: %s", output)
+	require.NoError(t, json.Unmarshal(output, out), "dashboard JavaScript returned %q", output)
+}
+
 func TestDashboardFleetOverview(t *testing.T) {
 	body := dashboardBody(t)
 	for _, id := range []string{
@@ -373,6 +391,110 @@ return [
 	var got [][]string
 	runDashboardJS(t, []string{"labelMap", "selectorQuantity", "selectorEligible", "eligibleDeviceIDs"}, expression, &got)
 	require.Equal(t, [][]string{{"large"}, {"small"}, {}}, got)
+}
+
+func TestDashboardFullWorkspaces(t *testing.T) {
+	body := dashboardBody(t)
+	for _, id := range []string{`id="workspace"`, `id="workspaceHeading"`, `id="workspaceBody"`, `id="workspaceBack"`} {
+		require.Contains(t, body, id)
+	}
+	for _, fn := range []string{"renderHostWorkspace", "renderDeviceWorkspace", "renderJobWorkspace"} {
+		require.Contains(t, body, "function "+fn+"(")
+	}
+	for _, removed := range []string{`id="scrim"`, `id="panel"`, `role="dialog"`, `aria-modal="true"`, "renderDevicePanel", "renderJobPanel"} {
+		require.NotContains(t, body, removed)
+	}
+	var related []string
+	runDashboardJS(t, []string{"relatedDeviceViews"}, `(() => {
+deviceIndex={a:{device:{id:"a",host:"rack"}},b:{device:{id:"b",host:"rack"}},c:{device:{id:"c",host:"other"}}};
+return relatedDeviceViews(deviceIndex.a).map(function(v){return v.device.id});
+})()`, &related)
+	require.Equal(t, []string{"b"}, related)
+}
+
+func TestDashboardWorkspaceRouting(t *testing.T) {
+	prelude := `
+function node() { return {classList:{values:{},add:function(k){this.values[k]=true},remove:function(k){delete this.values[k]}},style:{},focus:function(){document.activeElement=this}} }
+var nodes={fleetOverview:node(),whoBar:node(),workspace:node(),workspaceKind:node()};
+var document={activeElement:null,contains:function(n){return !!n},querySelectorAll:function(){return []},getElementById:function(id){return nodes[id]}};
+var trigger=node(); document.activeElement=trigger;
+var window={scrollY:73,location:{hash:"#fleet"},history:{replaceState:function(_a,_b,h){window.location.hash=h}},scrollTo:function(_x,y){window.scrollY=y},matchMedia:function(){return {matches:true}}};
+var workspaceView={kind:"fleet"}, workspaceBody=node(), workspaceHeading=node(), workspaceTrigger=null, workspaceTriggerView=null;
+workspaceBody.appendChild=function(){}; workspaceBody.textContent="";
+var overviewScrollY=0,overviewMode="bays",fleetMode="matrix",reduceMotion={matches:true},rendered="";
+function dropLogBlock(){} function setFleetMode(m){fleetMode=m} function renderHostWorkspace(id){rendered="host:"+id}
+function renderDeviceWorkspace(id){rendered="device:"+id} function renderJobWorkspace(id){rendered="job:"+id}
+`
+	var got map[string]any
+	runDashboardJSWithPrelude(t,
+		[]string{"routeHash", "navigateTo", "routeFromHash", "openDevice", "closeWorkspace", "resetJobWorkspaceTab", "transitionWorkspace", "findWorkspaceTrigger", "renderWorkspace"},
+		prelude, `(() => {
+  openDevice("gpu / 1"); routeFromHash();
+  var opened={hash:window.location.hash,rendered:rendered,headingFocused:document.activeElement===workspaceHeading,overviewHidden:!!nodes.fleetOverview.classList.values.hide};
+  closeWorkspace();
+  var closed={hash:window.location.hash,triggerFocused:document.activeElement===trigger,scrollY:window.scrollY,mode:fleetMode};
+  window.location.hash="#host/rack%2Fa"; routeFromHash();
+  var browserRoute={kind:workspaceView.kind,id:workspaceView.id,rendered:rendered};
+  window.location.hash="#fleet"; routeFromHash();
+  var browserBack={kind:workspaceView.kind,triggerFocused:document.activeElement===trigger,scrollY:window.scrollY,mode:fleetMode};
+  return {opened:opened,closed:closed,browserRoute:browserRoute,browserBack:browserBack};
+})()`, &got)
+	require.Equal(t, map[string]any{
+		"opened":       map[string]any{"hash": "#device/gpu%20%2F%201", "rendered": "device:gpu / 1", "headingFocused": true, "overviewHidden": true},
+		"closed":       map[string]any{"hash": "#fleet", "triggerFocused": true, "scrollY": float64(73), "mode": "matrix"},
+		"browserRoute": map[string]any{"kind": "host", "id": "rack/a", "rendered": "host:rack/a"},
+		"browserBack":  map[string]any{"kind": "fleet", "triggerFocused": true, "scrollY": float64(73), "mode": "matrix"},
+	}, got)
+}
+
+func TestDashboardWorkspaceAccessibility(t *testing.T) {
+	body := dashboardBody(t)
+	require.Contains(t, body, `<h2 id="workspaceHeading" tabindex="-1"></h2>`)
+	var got string
+	runDashboardJSWithPrelude(t, []string{"handleWorkspaceKeydown"},
+		`var workspaceView={kind:"device"}; var closed=0; function closeWorkspace(){closed++}`,
+		`(() => { handleWorkspaceKeydown({key:"Escape"}); handleWorkspaceKeydown({key:"Enter"}); return String(closed); })()`, &got)
+	require.Equal(t, "1", got)
+}
+
+func TestDashboardWorkspaceJobTabPersistsAcrossRepaints(t *testing.T) {
+	var got []string
+	runDashboardJSWithPrelude(t, []string{"jobWorkspaceTabFor", "selectJobWorkspaceTab", "resetJobWorkspaceTab", "buildJobWorkspaceTabs"},
+		`var jobWorkspaceTab="details", jobWorkspaceTabID=null;
+function n(){return {attrs:{},children:[],listeners:{},setAttribute:function(k,v){this.attrs[k]=v},appendChild:function(v){this.children.push(v)}}}
+function el(){return n()} function button(_c,_t,fn){var b=n();b.listeners.click=fn;return b}`,
+		`(() => { var out=[]; var first=n(); var tabs=buildJobWorkspaceTabs("one",first); out.push(first.attrs["data-tab"]); tabs.children[1].listeners.click(); var repaint=n(); buildJobWorkspaceTabs("one",repaint); out.push(repaint.attrs["data-tab"]); var next=n(); buildJobWorkspaceTabs("two",next); out.push(next.attrs["data-tab"]); resetJobWorkspaceTab(); var closed=n(); buildJobWorkspaceTabs("two",closed); out.push(closed.attrs["data-tab"]); return out; })()`, &got)
+	require.Equal(t, []string{"details", "output", "details", "details"}, got)
+}
+
+func TestDashboardHostWorkspaceLoadsEveryDevicesHistory(t *testing.T) {
+	prelude := `
+var workspaceView={kind:"host",id:"rack"}, describes={}, jobIndex={};
+var calls=[];
+function authHeaders(){return {}}
+var fetch=function(url){calls.push(url); var id=decodeURIComponent(url.split("/")[3]); return Promise.resolve({ok:true,json:function(){return Promise.resolve({recent_jobs:[{id:"shared",device_id:id},{id:"done-"+id,device_id:id}]})}})};
+`
+	var got map[string]any
+	runDashboardJSWithPrelude(t, []string{"fetchHostWorkspaceData"}, prelude,
+		`fetchHostWorkspaceData("rack",[{device:{id:"a"}},{device:{id:"b"}}]).then(function(jobs){return {calls:calls,jobs:jobs.map(function(j){return j.id}),indexed:Object.keys(jobIndex).sort()}})`, &got)
+	require.Equal(t, []any{"/v1/devices/a/describe", "/v1/devices/b/describe"}, got["calls"])
+	require.Equal(t, []any{"shared", "done-a", "done-b"}, got["jobs"])
+	require.Equal(t, []any{"done-a", "done-b", "shared"}, got["indexed"])
+}
+
+func TestDashboardPreservesAdminActions(t *testing.T) {
+	body := dashboardBody(t)
+	for _, preserved := range []string{"clearDevice(d.id, v.quarantine_reason)", "retireDevice(d.id)", "killJob({ id: id, device_id: job.device_id, submitter: job.submitter })", "copyText(full)", "renderMarkdown(data.sheet)"} {
+		require.Contains(t, body, preserved)
+	}
+}
+
+func TestDashboardReducedMotion(t *testing.T) {
+	var got map[string]any
+	runDashboardJSWithPrelude(t, []string{"transitionWorkspace"},
+		`var calls=0; var window={anime:true}; var anime={animate:function(){calls++}}; var reduceMotion={matches:true};`,
+		`(() => { var reduced={style:{}}; transitionWorkspace(reduced); reduceMotion.matches=false; var moving={style:{}}; transitionWorkspace(moving); return {reduced:reduced.style.opacity,moving:moving.style.opacity,calls:calls}; })()`, &got)
+	require.Equal(t, map[string]any{"reduced": "1", "moving": "0", "calls": float64(1)}, got)
 }
 
 // glyphTemplate matches one of the device glyphs declared as static markup.
