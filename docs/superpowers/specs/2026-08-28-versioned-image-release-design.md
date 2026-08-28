@@ -86,4 +86,3 @@ Run these checks before completion:
 - Confirmation that the tag publish workflow succeeds
 - Confirmation that the `0.1.0` controller image exists in GHCR
 - A final diff and status check in both repositories
-
