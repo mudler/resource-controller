@@ -829,6 +829,102 @@ func TestDashboardLifeMarksDoNotOverprint(t *testing.T) {
 	}
 }
 
+// Running now is a destination with its own hash, not a mode of the fleet.
+// The window selector went through a whole test run silently broken, because
+// nothing asserted its body. Each control that changes what the chart shows
+// gets a line here.
+func TestDashboardFleetControlsAreWired(t *testing.T) {
+	body := dashboardBody(t)
+	win := dashboardFunction(t, body, "setDayWindow")
+	require.Contains(t, win, `querySelectorAll("#dayWindow button")`)
+	require.Contains(t, win, "dayWindowHours = hours")
+	require.Contains(t, win, "drawFleet(latest.devices || [], latest)")
+	require.Contains(t, body, `b.addEventListener("click", function () { setDayWindow(Number(b.getAttribute("data-hours"))); });`)
+	require.Contains(t, dashboardFunction(t, body, "renderPlaces"), `querySelectorAll("#places button")`)
+}
+
+func TestDashboardRunningIsADestination(t *testing.T) {
+	body := dashboardBody(t)
+	require.Contains(t, body, `<button type="button" data-place="running">Running now`)
+	require.Contains(t, body, `id="runningView"`)
+	require.Contains(t, dashboardFunction(t, body, "routeHash"), `if (view.kind === "running") return "#running"`)
+	require.Contains(t, dashboardFunction(t, body, "routeFromHash"), `raw === "#running"`)
+	for _, fn := range []string{"renderRunning", "runCard", "startRunTail", "stopRunTails", "renderPlaces"} {
+		require.Contains(t, body, "function "+fn+"(")
+	}
+	// ".open" is the machine room's device-row class (flex:1, width:100%);
+	// reusing it here stretched the button across the card.
+	require.Contains(t, body, `button("act run-open", "Open"`)
+	require.NotContains(t, body, `button("act open", "Open"`)
+}
+
+// This is the screen most able to leak readers on the controller: one log
+// stream per visible run, every one of them held open for as long as the view
+// is. Every path that leaves or repaints the view must drop them.
+func TestDashboardRunningTailsAreAlwaysDropped(t *testing.T) {
+	body := dashboardBody(t)
+	require.Contains(t, dashboardFunction(t, body, "navigateTo"), "stopRunTails()",
+		"moving to another view must abort every tail")
+	// A repaint reuses the cards it already has. Rebuilding them every five
+	// seconds would abort and restart a stream per run on every state refresh,
+	// which is the job-log re-parenting bug one level up.
+	render := dashboardFunction(t, body, "renderRunning")
+	require.Contains(t, render, "runCards[job.id]")
+	require.Contains(t, render, "updateRunCard(entry, job, nowMs)")
+	require.NotContains(t, render, `list.textContent = "";
+    var state`,
+		"the list is not emptied wholesale on a repaint")
+	require.Contains(t, dashboardFunction(t, body, "updateRunCard"), "entry.elapsed.textContent",
+		"a repaint moves the numbers and leaves the tail alone")
+	require.NotContains(t, dashboardFunction(t, body, "updateRunCard"), "startRunTail")
+	require.Contains(t, dashboardFunction(t, body, "startRunTail"), "ctrl.signal.aborted",
+		"an aborted reader must stop pumping rather than run to completion")
+	require.Contains(t, dashboardFunction(t, body, "startRunTail"), "signal: ctrl.signal")
+
+	// Bounded: a job printing for a day must not grow this tab.
+	require.Contains(t, body, "var TAIL_LINES = 3")
+	require.Contains(t, body, "var TAIL_CAP = 8000")
+}
+
+func TestDashboardRunElapsedPrefersTheControllersNumber(t *testing.T) {
+	const prelude = `var NOW = Date.parse("2026-08-29T15:20:00Z");`
+
+	tests := []struct {
+		name string
+		job  string
+		view string
+		want int
+	}{
+		{
+			name: "the controller's elapsed wins when it is on the wire",
+			job:  `{started_at:"2026-08-29T13:06:00Z"}`,
+			view: `{elapsed_seconds: 8040}`,
+			want: 8040,
+		},
+		{
+			name: "a job state has not caught up with still shows an elapsed",
+			job:  `{started_at:"2026-08-29T15:00:00Z"}`,
+			view: `null`,
+			want: 1200,
+		},
+		{
+			name: "a job that never started has run for nothing",
+			job:  `{started_at:null}`,
+			view: `null`,
+			want: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got int
+			runDashboardJSWithPrelude(t, []string{"instant", "runElapsedSeconds"}, prelude,
+				"runElapsedSeconds("+tt.job+", "+tt.view+", NOW)", &got)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestDashboardMatrixMode(t *testing.T) {
 	body := dashboardBody(t)
 	require.Contains(t, body, "function setFleetMode(mode)")
@@ -904,7 +1000,7 @@ return relatedDeviceViews(deviceIndex.a).map(function(v){return v.device.id});
 func TestDashboardWorkspaceRouting(t *testing.T) {
 	prelude := `
 function node() { return {classList:{values:{},add:function(k){this.values[k]=true},remove:function(k){delete this.values[k]},toggle:function(k,on){if(on){this.values[k]=true}else{delete this.values[k]}}},style:{},focus:function(){document.activeElement=this}} }
-var nodes={fleetOverview:node(),whoBar:node(),workspace:node(),workspaceKind:node()};
+var nodes={fleetOverview:node(),whoBar:node(),workspace:node(),workspaceKind:node(),runningView:node(),runningHeading:node()};
 var document={activeElement:null,contains:function(n){return !!n},querySelectorAll:function(){return []},getElementById:function(id){return nodes[id]}};
 var trigger=node(); document.activeElement=trigger;
 var window={scrollY:73,location:{hash:"#fleet"},history:{replaceState:function(_a,_b,h){window.location.hash=h}},scrollTo:function(_x,y){window.scrollY=y},matchMedia:function(){return {matches:true}}};
@@ -913,7 +1009,7 @@ workspaceBody.appendChild=function(){}; workspaceBody.textContent="";
 var workspaceLife=node(), workspaceMain=node(), workspaceOutput=node();
 [workspaceLife,workspaceMain,workspaceOutput].forEach(function(n){n.appendChild=function(){}; n.textContent="";});
 var overviewScrollY=0,overviewMode="bays",fleetMode="matrix",reduceMotion={matches:true},rendered="";
-function dropLogBlock(){} function setFleetMode(m){fleetMode=m} function renderHostWorkspace(id){rendered="host:"+id}
+function dropLogBlock(){} function stopRunTails(){} function renderRunning(){} function setFleetMode(m){fleetMode=m} function renderHostWorkspace(id){rendered="host:"+id}
 function renderDeviceWorkspace(id){rendered="device:"+id} function renderJobWorkspace(id){rendered="job:"+id}
 `
 	var got map[string]any

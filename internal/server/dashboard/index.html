@@ -313,6 +313,45 @@
   .ev.good .ev-text b { color:var(--ink); }
   .feed-note { font-size:11.5px; color:var(--faint); margin:8px 2px 0; }
 
+  /* ---- destinations -------------------------------------------------- */
+  .places { display:flex; gap:2px; }
+  .places button { border:0; background:none; font:inherit; font-size:13.5px; color:var(--muted);
+                   padding:5px 11px; border-radius:8px; cursor:pointer; }
+  .places button:hover { background:var(--hover); color:var(--ink); }
+  .places button[aria-current="page"] { background:var(--sunk); color:var(--ink); font-weight:600; }
+  .places .n { margin-left:6px; font-size:11.5px; color:var(--faint); font-variant-numeric:tabular-nums; }
+
+  /* ---- running now ----------------------------------------------------
+     Every active lease on one screen. Watching three jobs used to mean
+     opening three pages one at a time. */
+  .running-head { margin-bottom:18px; }
+  .running-head h2 { font:650 clamp(23px,3vw,34px)/1.2 ui-serif,Georgia,serif; margin:0 0 4px;
+                     letter-spacing:-.02em; }
+  .running-sub { font-size:13px; color:var(--muted); margin:0; }
+  .running-sub .warn { color:var(--warn); font-weight:600; }
+  .run { border:1px solid var(--line); border-radius:11px; background:var(--panel);
+         box-shadow:var(--shadow); margin-bottom:12px; overflow:hidden; }
+  .run-top { display:flex; align-items:center; gap:var(--sp-3); padding:11px 14px 9px; flex-wrap:wrap; }
+  .run-top .id { font-size:14px; font-weight:600; }
+  .run-top .who { font-size:13px; color:var(--ink-2); }
+  /* Not ".open": the machine room already uses that for a device row, where
+     it means the whole row is the click target — flex:1 and width:100%. */
+  .run-top .run-open { margin-left:auto; flex:none; }
+  .run-meter { padding:0 14px 10px; }
+  .run-track { position:relative; height:7px; border-radius:100px; background:var(--sunk); overflow:hidden; }
+  .run-fill { position:absolute; top:0; bottom:0; left:0; border-radius:100px; background:var(--job-other); }
+  .run-fill.mine { background:var(--job-mine); }
+  .run-fill.soon { background:var(--warn); }
+  .run-meta { display:flex; gap:var(--sp-3); margin-top:6px; font-size:11.5px; color:var(--muted);
+              font-variant-numeric:tabular-nums; flex-wrap:wrap; }
+  .run-meta .r { margin-left:auto; }
+  .run-meta .soon { color:var(--warn); font-weight:600; }
+  .run-tail { background:var(--sunk); border-top:1px solid var(--line); padding:8px 14px;
+              font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:11px;
+              line-height:1.6; color:var(--ink-2); white-space:pre; overflow:hidden; height:60px; }
+  .run-note { background:var(--sunk); border-top:1px solid var(--line); padding:9px 14px;
+              font-size:12.5px; color:var(--muted); }
+
   /* ---- the life of one run ------------------------------------------
      A job's own axis: the wait for a card, the run so far, and the moment
      the controller will stop it. max_runtime_seconds is a real field, so
@@ -607,6 +646,10 @@
     </svg>
     <h1>resource controller</h1>
   </span>
+  <nav class="places" id="places" aria-label="Views">
+    <button type="button" data-place="fleet" aria-current="page">The day</button>
+    <button type="button" data-place="running">Running now<span class="n" id="placesRunning"></span></button>
+  </nav>
   <span id="role" class="hide"></span>
   <span id="act" aria-live="polite"></span>
   <span id="err"></span>
@@ -667,6 +710,13 @@
     <button type="submit">Set</button>
     <span id="whoHint"></span>
   </form>
+  <section id="runningView" class="hide" aria-labelledby="runningHeading">
+    <div class="running-head">
+      <h2 id="runningHeading" tabindex="-1">Running now</h2>
+      <p class="running-sub" id="runningSub"></p>
+    </div>
+    <div id="runningList"></div>
+  </section>
   <section id="workspace" class="hide" aria-labelledby="workspaceHeading">
     <div class="workspace-head">
       <button id="workspaceBack" class="iconbtn" type="button" title="back to fleet">&#8592;</button>
@@ -1589,6 +1639,7 @@
 
     renderOverview(state);
     if (workspaceView.kind !== "fleet") renderWorkspace({ preserve: true });
+    renderPlaces();
   }
 
   var fleetMode = "day";
@@ -1609,6 +1660,24 @@
     });
     if (latest) drawFleet(latest.devices || [], latest);
   }
+
+  // Which of the two destinations is current, and how much is running.
+  function renderPlaces() {
+    var here = workspaceView.kind === "running" ? "running" : "fleet";
+    document.querySelectorAll("#places button").forEach(function (b) {
+      if (b.getAttribute("data-place") === here) b.setAttribute("aria-current", "page");
+      else b.removeAttribute("aria-current");
+    });
+    var n = document.getElementById("placesRunning");
+    var active = ((latest && latest.jobs) || []).filter(function (j) { return !j.finished_at; }).length;
+    n.textContent = active ? String(active) : "";
+  }
+
+  document.querySelectorAll("#places button").forEach(function (b) {
+    b.addEventListener("click", function () {
+      navigateTo({ kind: b.getAttribute("data-place") });
+    });
+  });
 
   // The one place that decides which picture of the fleet is on screen.
   function drawFleet(views, state) {
@@ -1698,6 +1767,7 @@
     }
 
     drawFleet(views, state);
+    renderPlaces();
     renderAttention(views, state);
     renderWorkStrip(state, views);
   }
@@ -2405,6 +2475,7 @@
 
   function routeHash(view) {
     if (view.kind === "fleet") return "#fleet";
+    if (view.kind === "running") return "#running";
     if (view.kind === "host") return "#host/" + encodeURIComponent(view.id);
     if (view.kind === "device") return "#device/" + encodeURIComponent(view.id);
     return "#job/" + encodeURIComponent(view.id);
@@ -2418,7 +2489,10 @@
       workspaceTrigger = document.activeElement;
       workspaceTriggerView = view;
     }
-    if (workspaceView.kind !== view.kind || workspaceView.id !== view.id) dropLogBlock();
+    if (workspaceView.kind !== view.kind || workspaceView.id !== view.id) {
+      dropLogBlock();
+      stopRunTails();
+    }
     if (view.kind === "job") jobWorkspaceTabFor(view.id);
     var previousKind = workspaceView.kind;
     workspaceView = view;
@@ -2438,6 +2512,7 @@
     if (!window.location.hash) window.history.replaceState(null, "", "#fleet");
     var raw = window.location.hash || "#fleet";
     if (raw === "#fleet" || raw === "#") { navigateTo({ kind: "fleet" }, { fromHash: true }); return; }
+    if (raw === "#running") { navigateTo({ kind: "running" }, { fromHash: true }); return; }
     var match = /^#(host|device|job)\/(.+)$/.exec(raw);
     if (!match) {
       window.history.replaceState(null, "", "#fleet");
@@ -2533,6 +2608,7 @@
     var workspace = document.getElementById("workspace");
     if (workspaceView.kind === "fleet") {
       workspace.classList.add("hide");
+      document.getElementById("runningView").classList.add("hide");
       overview.classList.remove("hide");
       who.classList.remove("hide");
       setFleetMode(overviewMode);
@@ -2542,6 +2618,24 @@
       if (!options.preserve) transitionWorkspace(overview);
       return;
     }
+
+    var runningView = document.getElementById("runningView");
+    if (workspaceView.kind === "running") {
+      overview.classList.add("hide");
+      who.classList.add("hide");
+      workspace.classList.add("hide");
+      runningView.classList.remove("hide");
+      renderRunning();
+      if (options.preserve) {
+        window.scrollTo(0, currentScrollY);
+      } else {
+        window.scrollTo(0, 0);
+        document.getElementById("runningHeading").focus();
+        transitionWorkspace(runningView);
+      }
+      return;
+    }
+    runningView.classList.add("hide");
 
     overview.classList.add("hide");
     who.classList.add("hide");
@@ -2943,6 +3037,203 @@
           meta.appendChild(el("p", "under", "This job could not be read: " + e.message));
         }
       });
+  }
+
+  // ---- running now ------------------------------------------------------
+  //
+  // Every active lease on one screen. Watching three jobs used to mean opening
+  // three pages one at a time and reading them in turn.
+  //
+  // This is the screen most able to leak readers on the controller: one log
+  // stream per visible run, all of them held open for as long as the view is.
+  // So the tails are short, bounded, and dropped the instant the view changes
+  // — see stopRunTails, which navigateTo calls on every move.
+
+  // job id -> the card on screen and the reader feeding its tail. Keyed,
+  // not rebuilt: a state refresh repaints this view every five seconds, and
+  // recreating the cards would abort and restart every stream on the fleet —
+  // the same mistake as re-parenting the job log, one level up. Cards are
+  // updated in place and only a run that has actually ended loses its reader.
+  var runCards = {};
+  var TAIL_LINES = 3;     // lines of output kept per run
+  var TAIL_CAP = 8000;    // characters held before the buffer is trimmed
+
+  function stopRunTails() {
+    Object.keys(runCards).forEach(function (id) {
+      runCards[id].abort();
+      if (runCards[id].root.parentNode) runCards[id].root.parentNode.removeChild(runCards[id].root);
+    });
+    runCards = {};
+  }
+
+  function startRunTail(id, pane, entry) {
+    var ctrl = new AbortController();
+    entry.abort = function () { ctrl.abort(); };
+    var buf = "";
+    function paint(chunk) {
+      if (!chunk) return;
+      buf += chunk;
+      if (buf.length > TAIL_CAP) buf = buf.slice(buf.length - TAIL_CAP);
+      var lines = buf.split("\n").filter(function (l) { return l.length > 0; });
+      pane.textContent = lines.slice(-TAIL_LINES).join("\n");
+    }
+    fetch("/v1/jobs/" + encodeURIComponent(id) + "/logs",
+          { headers: authHeaders(), signal: ctrl.signal })
+      .then(function (r) {
+        if (!r.ok || !r.body) { pane.textContent = "no output yet"; return; }
+        var reader = r.body.getReader();
+        var decoder = new TextDecoder();
+        function pump() {
+          return reader.read().then(function (res) {
+            if (ctrl.signal.aborted) { reader.cancel(); return; }
+            if (res.done) { paint(decoder.decode()); return; }
+            paint(decoder.decode(res.value, { stream: true }));
+            return pump();
+          });
+        }
+        return pump();
+      })
+      .catch(function (e) {
+        if (e && e.name === "AbortError") return;
+        pane.textContent = "the tail stopped: " + e.message;
+      });
+  }
+
+  // Elapsed comes from the controller when it is on the wire, for the same
+  // reason every other age does. Falling back to the anchored clock keeps a
+  // job visible that state has not caught up with yet.
+  function runElapsedSeconds(job, view, nowMs) {
+    if (view && typeof view.elapsed_seconds === "number") return view.elapsed_seconds;
+    var start = instant(job.started_at);
+    if (!isFinite(start)) return 0;
+    return Math.max(0, Math.round((nowMs - start) / 1000));
+  }
+
+  function renderRunning() {
+    var list = document.getElementById("runningList");
+    var state = latest || {};
+    var active = (state.jobs || []).filter(function (j) { return !j.finished_at; });
+    var nowMs = controllerNow();
+    var queued = (state.queued || []).length;
+    var waits = state.queued_waiting_seconds || {};
+    var longest = 0;
+    Object.keys(waits).forEach(function (k) { if (waits[k] > longest) longest = waits[k]; });
+
+    var sub = document.getElementById("runningSub");
+    sub.textContent = "";
+    if (!active.length) {
+      stopRunTails();
+      list.textContent = "";
+      sub.appendChild(txt("Nothing is running. Every device in the pool is free."));
+      list.appendChild(el("div", "empty", "No active leases."));
+      return;
+    }
+    sub.appendChild(txt(active.length + (active.length === 1 ? " active lease" : " active leases")));
+    if (queued) {
+      sub.appendChild(txt(" · " + queued + (queued === 1 ? " job queued" : " jobs queued") + " · longest wait "));
+      sub.appendChild(el("span", longest >= 600 ? "warn" : null, ago(longest)));
+    }
+
+    active.sort(function (a, b) { return (a.device_id || "").localeCompare(b.device_id || ""); });
+
+    // Anything that has stopped running loses its card and its reader.
+    var live = {};
+    active.forEach(function (j) { live[j.id] = true; });
+    Object.keys(runCards).forEach(function (id) {
+      if (live[id]) return;
+      runCards[id].abort();
+      if (runCards[id].root.parentNode) runCards[id].root.parentNode.removeChild(runCards[id].root);
+      delete runCards[id];
+    });
+
+    // Everything still running keeps the card and the stream it already has.
+    var empty = list.querySelector(".empty");
+    if (empty) list.removeChild(empty);
+    active.forEach(function (job) {
+      var entry = runCards[job.id];
+      if (!entry) {
+        entry = runCard(job, nowMs);
+        runCards[job.id] = entry;
+      } else {
+        updateRunCard(entry, job, nowMs);
+      }
+      list.appendChild(entry.root);
+    });
+  }
+
+  // Only the numbers move. The tail pane and its reader are untouched.
+  function updateRunCard(entry, job, nowMs) {
+    var view = job.device_id ? deviceIndex[job.device_id] : null;
+    var elapsed = runElapsedSeconds(job, view, nowMs);
+    var limit = job.max_runtime_seconds || 0;
+    var remaining = limit ? limit - elapsed : null;
+    var soon = remaining !== null && remaining <= 900;
+    entry.fill.style.width = (limit ? Math.min(100, elapsed / limit * 100) : 12) + "%";
+    entry.fill.className = "run-fill" + (soon ? " soon" : entry.mine ? " mine" : "");
+    entry.elapsed.textContent = "running " + ago(elapsed);
+    entry.remaining.className = "r" + (soon ? " soon" : "");
+    entry.remaining.textContent = remaining === null ? "runs until released"
+      : remaining <= 0 ? "past its limit" : ago(remaining) + " left";
+  }
+
+  function runCard(job, nowMs) {
+    var view = job.device_id ? deviceIndex[job.device_id] : null;
+    var elapsed = runElapsedSeconds(job, view, nowMs);
+    var limit = job.max_runtime_seconds || 0;
+    var remaining = limit ? limit - elapsed : null;
+    var soon = remaining !== null && remaining <= 900;
+    var mine = job.submitter && job.submitter === identity;
+    var card = el("div", "run");
+
+    var top = el("div", "run-top");
+    top.appendChild(el("span", "id mono", job.id.slice(0, 8)));
+    top.appendChild(el("span", "who", job.submitter || "someone"));
+    if (job.device_id) {
+      top.appendChild(button("linkish mono", job.device_id, function () { openDevice(job.device_id); }));
+    }
+    if (job.kind === "hold") top.appendChild(el("span", "pill busy", "hold"));
+    var open = button("act run-open", "Open", function () { openJob(job.id); });
+    open.setAttribute("data-workspace-kind", "job");
+    open.setAttribute("data-workspace-id", job.id);
+    top.appendChild(open);
+    card.appendChild(top);
+
+    var meter = el("div", "run-meter");
+    var track = el("div", "run-track");
+    var fill = el("div", "run-fill" + (soon ? " soon" : mine ? " mine" : ""));
+    fill.style.width = (limit ? Math.min(100, elapsed / limit * 100) : 12) + "%";
+    if (!limit) fill.style.opacity = ".4";
+    track.appendChild(fill);
+    meter.appendChild(track);
+    var meta = el("div", "run-meta");
+    var elapsedNode = el("span", null, "running " + ago(elapsed));
+    var remainingNode = el("span", "r" + (soon ? " soon" : ""),
+      remaining === null ? "runs until released"
+        : remaining <= 0 ? "past its limit" : ago(remaining) + " left");
+    meta.appendChild(elapsedNode);
+    meta.appendChild(el("span", null, limit ? "limit " + ago(limit) : "no limit set"));
+    meta.appendChild(remainingNode);
+    meter.appendChild(meta);
+    card.appendChild(meter);
+
+    var entry = {
+      root: card, fill: fill, elapsed: elapsedNode, remaining: remainingNode,
+      mine: !!mine, abort: function () {}
+    };
+
+    if (job.kind === "hold") {
+      card.appendChild(el("div", "run-note",
+        "A hold runs nothing, so it produces no output." +
+        (job.reason ? " Taken for " + job.reason + "." : "")));
+    } else if (job.stdio === "tty" || job.stdio === "pipe") {
+      card.appendChild(el("div", "run-note",
+        "This job's output goes straight to whoever attached to it, not to the controller."));
+    } else {
+      var tail = el("div", "run-tail mono", "waiting for output…");
+      card.appendChild(tail);
+      startRunTail(job.id, tail, entry);
+    }
+    return entry;
   }
 
   // ---- the life of one run ----------------------------------------------
