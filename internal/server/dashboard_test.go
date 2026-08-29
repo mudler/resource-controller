@@ -953,6 +953,73 @@ func TestDashboardShowsWhatTheFlapGuardKnows(t *testing.T) {
 		"the cache paints immediately so reopening a device never flashes empty")
 }
 
+// "output ended" used to be the same sentence whether the job finished or the
+// connection died, which is how someone concludes a run stopped when it is
+// still going. Every state the viewer can be in is now said in words.
+func TestDashboardLogSaysWhichStateItIsIn(t *testing.T) {
+	body := dashboardBody(t)
+	words := dashboardFunction(t, body, "logStateWords")
+	for _, phrase := range []string{
+		`"waiting for the controller…"`,
+		`"the stream stopped"`,
+		`"output ended"`,
+		`"the job produced no output"`,
+		`"reconnecting…"`,
+		`"streaming · following paused"`,
+		`"streaming · following"`,
+	} {
+		require.Contains(t, words, phrase)
+	}
+
+	// End of body cannot distinguish a finished job from a dead connection,
+	// so the job's own state settles it.
+	start := dashboardFunction(t, body, "logStart")
+	require.Contains(t, start, "terminalState(current.state)")
+	require.Contains(t, start, `logSetState("broken", "the job is still running")`)
+	require.Contains(t, start, "logOfferReconnect(logJobID)")
+
+	// The tone is a repeat of the words, never their only carrier.
+	require.Contains(t, body, ".log-state.broken { color:var(--bad); }")
+	require.Contains(t, dashboardFunction(t, body, "logPaint"), "logStateText.textContent = words.text")
+}
+
+// Leaving the live edge must not cost the reader their place, and coming back
+// must be one control away with the backlog named.
+func TestDashboardLogFollowIsDecidedAtWriteTime(t *testing.T) {
+	body := dashboardBody(t)
+	flush := dashboardFunction(t, body, "logFlush")
+	// A scroll event is dispatched asynchronously, so a flush that trusted
+	// only the listener would haul a reader back down in the window between
+	// their drag and the event being handled.
+	require.Contains(t, flush, "var atEdge = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 30;")
+	require.Contains(t, flush, "if (logFollow && !atEdge) { logFollow = false; logUnseen = 0; }")
+	require.Contains(t, flush, "logUnseen += lines")
+
+	// Buffered: a writer printing thousands of lines a second costs one
+	// layout per frame, not one per chunk.
+	require.Contains(t, dashboardFunction(t, body, "logAppend"), "requestAnimationFrame")
+	require.Contains(t, dashboardFunction(t, body, "stopLogStream"), "cancelAnimationFrame")
+
+	// The retained-output cap is visible, because output vanishing from the
+	// top of a pane otherwise looks like the job never printed it.
+	require.Contains(t, flush, "earlier output is no longer shown here")
+
+	require.Contains(t, dashboardFunction(t, body, "logPaint"), `" new lines"`)
+	require.Contains(t, dashboardFunction(t, body, "logSetFollow"), "logPane.scrollTop = logPane.scrollHeight")
+}
+
+// A reconnect replays the stored output from the beginning, because the API
+// cannot resume part-way. That is a different thing from continuing, so it is
+// offered rather than done.
+func TestDashboardLogReconnectIsOfferedNotAutomatic(t *testing.T) {
+	body := dashboardBody(t)
+	offer := dashboardFunction(t, body, "logOfferReconnect")
+	require.Contains(t, offer, `button("tiny", "Reconnect"`)
+	require.Contains(t, offer, "Replays this job's stored output from the beginning")
+	require.NotContains(t, dashboardFunction(t, body, "logStart"), "setTimeout",
+		"a broken stream must not silently retry behind the reader")
+}
+
 func TestDashboardRunningIsADestination(t *testing.T) {
 	body := dashboardBody(t)
 	require.Contains(t, body, `<button type="button" data-place="running">Running now`)

@@ -577,9 +577,31 @@
   .log { background:var(--sunk); border:1px solid var(--line); border-radius:8px;
          padding:10px 12px; font-size:12px; line-height:1.5; overflow:auto;
          white-space:pre-wrap; word-break:break-word; color:var(--ink-2); margin:0; }
-  .log-status { font-size:11.5px; color:var(--faint); margin:6px 2px 0; display:flex; gap:var(--sp-2); }
-  .log-status .streaming { color:var(--ready); }
-  .log-status .bad { color:var(--bad); }
+  /* The stream says which of its states it is in, in words. "output ended"
+     used to be the same sentence whether the job finished or the connection
+     died, which is the one distinction a reader cannot afford to miss. */
+  .log-bar { display:flex; align-items:center; gap:var(--sp-3); flex-wrap:wrap;
+             margin:0 0 6px; font-size:11.5px; color:var(--muted); }
+  .log-state { display:flex; align-items:center; gap:var(--sp-2); font-weight:600; }
+  .log-state i { width:6px; height:6px; border-radius:50%; background:var(--faint); flex:none; }
+  .log-state.live { color:var(--ready); } .log-state.live i { background:var(--ready); }
+  .log-state.paused { color:var(--warn); } .log-state.paused i { background:var(--warn); }
+  .log-state.broken { color:var(--bad); } .log-state.broken i { background:var(--bad); }
+  .log-tools { margin-left:auto; display:flex; gap:var(--sp-2); align-items:center; }
+  /* The wrapper is in the height chain, not beside it. A relatively
+     positioned box that sizes to its content lets the pane inside grow
+     instead of scroll — and a pane that never overflows is always "at the
+     bottom", so follow mode can never pause. Same trap as the output column
+     above it; it has to be a constrained flex parent too. */
+  .log-wrap { position:relative; display:flex; flex-direction:column; flex:1; min-height:0; }
+  /* Jump to live is a real control, not a hint: it names how much has arrived
+     while the reader was elsewhere, and it is the way back. */
+  .log-jump { position:absolute; left:50%; bottom:12px; transform:translateX(-50%);
+              border:0; background:var(--accent); color:#fff; border-radius:100px;
+              padding:5px 14px; font:inherit; font-size:12px; font-weight:600; cursor:pointer;
+              box-shadow:0 6px 20px -6px rgba(20,22,28,.45); z-index:2; }
+  .log-jump:hover { filter:brightness(1.08); }
+  .log-note { color:var(--faint); font-style:italic; }
 
   .sheet { font-size:13.5px; color:var(--ink-2); }
   .sheet h3 { font-size:14px; margin:14px 0 4px; color:var(--ink); font-weight:600; }
@@ -3654,6 +3676,7 @@
     // refresh; re-appending it would reset the reader's scroll. It IS rebuilt
     // when a job that had nothing to show starts running.
     if (logBlock === null || logBlockJob !== id || (logBlockQueued && job.state !== "queued")) {
+      logJobID = id;
       logBlock = logSection(id, job);
       logBlockJob = id;
       logBlockQueued = job.state === "queued";
@@ -3683,15 +3706,32 @@
   // and appended as text nodes, so output appears as it is produced rather
   // than when the job ends.
 
-  var logAbort = null, logPane = null, logStatus = null, logChars = 0;
+  var logAbort = null, logPane = null, logChars = 0;
+  var logStateNode = null, logStateText = null, logJump = null, logFollowBtn = null;
+  var logState = "waiting";   // waiting | live | ended | broken | reconnecting
+  var logDetail = "";
+  var logFollow = true;       // is the reader at the live edge?
+  var logUnseen = 0;          // lines appended while they were not
+  var logBuffer = "", logFrame = 0, logTruncated = false;
+  var logJobID = null;
   var logBlock = null, logBlockJob = null, logBlockQueued = false;
   var LOG_CAP = 400000;   // characters kept in the DOM; older output is dropped
 
   function stopLogStream() {
     if (logAbort) { logAbort.abort(); logAbort = null; }
+    if (logFrame) { cancelAnimationFrame(logFrame); logFrame = 0; }
     logPane = null;
-    logStatus = null;
+    logStateNode = null;
+    logStateText = null;
+    logJump = null;
+    logFollowBtn = null;
     logChars = 0;
+    logBuffer = "";
+    logUnseen = 0;
+    logState = "waiting";
+    logDetail = "";
+    logFollow = true;
+    logTruncated = false;
   }
 
   // Called whenever the panel moves to a different subject: the stream is
@@ -3723,28 +3763,66 @@
       return block;
     }
 
-    var pre = el("pre", "log mono");
-    var status = el("div", "log-status");
-    status.appendChild(el("span", null, "waiting for output…"));
-    block.appendChild(pre);
-    block.appendChild(status);
+    var bar = el("div", "log-bar");
+    var state = el("div", "log-state");
+    state.appendChild(el("i"));
+    var stateText = el("span", null, "waiting for the controller…");
+    state.appendChild(stateText);
+    bar.appendChild(state);
+    var tools = el("div", "log-tools");
+    var followBtn = button("tiny", "Pause following", function () { logSetFollow(!logFollow); });
+    tools.appendChild(followBtn);
+    bar.appendChild(tools);
 
-    // Only one stream at a time, and it is dropped the moment the panel
+    var wrap = el("div", "log-wrap");
+    var pre = el("pre", "log mono");
+    var jump = button("log-jump", "Jump to live", function () { logSetFollow(true); });
+    jump.classList.add("hide");
+    wrap.appendChild(pre);
+    wrap.appendChild(jump);
+
+    block.appendChild(bar);
+    block.appendChild(wrap);
+
+    // Only one stream at a time, and it is dropped the moment the workspace
     // moves on: an abandoned reader keeps a connection, a goroutine and a
     // file handle alive on the controller.
     stopLogStream();
     logPane = pre;
-    logStatus = status;
+    logStateNode = state;
+    logStateText = stateText;
+    logJump = jump;
+    logFollowBtn = followBtn;
     logChars = 0;
+    logUnseen = 0;
+    logFollow = true;
+    logTruncated = false;
+
+    // The reader's own scrolling is what decides whether they are following.
+    // Reaching the bottom by hand resumes it; leaving it pauses without
+    // touching the network, so nothing is missed while they read.
+    pre.addEventListener("scroll", function () {
+      if (logPane !== pre) return;
+      var atEdge = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 30;
+      if (atEdge && !logFollow) logSetFollow(true);
+      else if (!atEdge && logFollow) { logFollow = false; logUnseen = 0; logPaint(); }
+    });
+
+    logStart(id);
+    return block;
+  }
+
+  function logStart(id) {
     var ctrl = new AbortController();
     logAbort = ctrl;
-
+    logPaint();
     fetch("/v1/jobs/" + encodeURIComponent(id) + "/logs",
           { headers: authHeaders(), signal: ctrl.signal })
       .then(function (r) {
-        if (!r.ok) return serverError(r).then(function (m) { logSay("no output: " + m, "bad"); });
-        if (!r.body) { logSay("this browser cannot stream the log", "bad"); return; }
-        logSay("streaming", "streaming");
+        if (ctrl !== logAbort) return;
+        if (!r.ok) return serverError(r).then(function (m) { logSetState("broken", "no output: " + m); });
+        if (!r.body) { logSetState("broken", "this browser cannot stream the log"); return; }
+        logSetState("live", "");
         var reader = r.body.getReader();
         var decoder = new TextDecoder();
         function pump() {
@@ -3752,7 +3830,20 @@
             if (ctrl !== logAbort) { reader.cancel(); return; }
             if (res.done) {
               logAppend(decoder.decode());
-              logSay(logChars ? "output ended" : "the job produced no output");
+              logFlush();
+              // End of body is ambiguous and cannot be made otherwise from
+              // here: a job that finished and a connection that died both
+              // simply stop arriving, and a plain streaming response has no
+              // terminator that distinguishes them. What settles it is the
+              // controller's own view of the job — if it is still running,
+              // then the output has not ended, the stream has.
+              var current = jobIndex[logJobID];
+              if (current && !terminalState(current.state)) {
+                logSetState("broken", "the job is still running");
+                logOfferReconnect(logJobID);
+              } else {
+                logSetState("ended", "");
+              }
               return;
             }
             logAppend(decoder.decode(res.value, { stream: true }));
@@ -3763,33 +3854,130 @@
       })
       .catch(function (e) {
         if (e && e.name === "AbortError") return;
-        logSay("the log stream stopped: " + e.message, "bad");
+        if (ctrl !== logAbort) return;
+        // NOT "output ended". A stream that died mid-job and a job that
+        // finished are the same number of bytes and completely different
+        // facts, and reading the first as the second is how someone
+        // concludes a run stopped when it is still going.
+        logSetState("broken", e.message);
+        logOfferReconnect(logJobID);
       });
-
-    return block;
   }
 
-  function logSay(text, cls) {
-    if (!logStatus) return;
-    logStatus.textContent = "";
-    logStatus.appendChild(el("span", cls || null, text));
+  function logSetState(next, detail) {
+    logState = next;
+    logDetail = detail || "";
+    logPaint();
   }
 
+  function logSetFollow(on) {
+    logFollow = !!on;
+    if (logFollow) {
+      logUnseen = 0;
+      if (logPane) logPane.scrollTop = logPane.scrollHeight;
+    }
+    logPaint();
+  }
+
+  // Every state this viewer can be in, said in words. The dot repeats it in
+  // colour for a glance, and never carries it alone.
+  function logStateWords() {
+    if (logState === "waiting") return { tone: "", text: "waiting for the controller…" };
+    if (logState === "broken") {
+      return { tone: "broken", text: "the stream stopped" + (logDetail ? " — " + logDetail : "") };
+    }
+    if (logState === "ended") {
+      return { tone: "", text: logChars ? "output ended" : "the job produced no output" };
+    }
+    if (logState === "reconnecting") return { tone: "", text: "reconnecting…" };
+    if (!logFollow) {
+      return { tone: "paused", text: "streaming · following paused" };
+    }
+    return { tone: "live", text: "streaming · following" };
+  }
+
+  function logPaint() {
+    if (!logStateNode) return;
+    var words = logStateWords();
+    logStateNode.className = "log-state" + (words.tone ? " " + words.tone : "");
+    logStateText.textContent = words.text;
+    var streaming = logState === "live";
+    if (logFollowBtn) {
+      logFollowBtn.classList.toggle("hide", !streaming);
+      logFollowBtn.textContent = logFollow ? "Pause following" : "Follow";
+    }
+    if (logJump) {
+      logJump.classList.toggle("hide", logFollow || !streaming);
+      logJump.textContent = logUnseen
+        ? "Jump to live · " + logUnseen + (logUnseen === 1 ? " new line" : " new lines")
+        : "Jump to live";
+    }
+  }
+
+  // Chunks are decoded as they arrive but written to the document on the next
+  // frame, so a writer printing thousands of lines a second costs one layout
+  // per frame rather than one per chunk.
   function logAppend(chunk) {
     if (!chunk || !logPane) return;
+    logBuffer += chunk;
+    if (logFrame) return;
+    logFrame = requestAnimationFrame(function () { logFrame = 0; logFlush(); });
+  }
+
+  function logFlush() {
+    if (logFrame) { cancelAnimationFrame(logFrame); logFrame = 0; }
+    var chunk = logBuffer;
+    logBuffer = "";
+    if (!chunk || !logPane) return;
     var pane = logPane;
-    var atBottom = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 30;
+    var lines = chunk.split("\n").length - 1;
+    // Whether the reader is still at the live edge is decided HERE, before
+    // anything is written, and not left to the scroll listener alone: a
+    // scroll event is dispatched asynchronously, so between someone dragging
+    // upward and that event being handled there is a window in which a flush
+    // would see stale follow state and haul them back to the bottom. The
+    // listener still runs, for immediate feedback; this is what makes it
+    // correct.
+    var atEdge = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 30;
+    if (logFollow && !atEdge) { logFollow = false; logUnseen = 0; }
     pane.appendChild(txt(chunk));
     logChars += chunk.length;
     // Bounded: a job that prints for a day must not grow this tab without
-    // limit. The oldest nodes go first, which is the right end to lose.
+    // limit. The oldest nodes go first, which is the right end to lose — and
+    // the reader is told, because output silently disappearing from the top
+    // of a pane looks like the job never printed it.
     while (logChars > LOG_CAP && pane.firstChild && pane.childNodes.length > 1) {
       logChars -= (pane.firstChild.textContent || "").length;
       pane.removeChild(pane.firstChild);
+      if (!logTruncated) {
+        logTruncated = true;
+        pane.insertBefore(el("span", "log-note",
+          "— earlier output is no longer shown here; the controller still has all of it —\n"),
+          pane.firstChild);
+      }
     }
-    // Stick to the bottom only if the reader was already there: scrolling
-    // up to read something must not be undone by the next chunk.
-    if (atBottom) pane.scrollTop = pane.scrollHeight;
+    if (logFollow) pane.scrollTop = pane.scrollHeight;
+    else if (lines) { logUnseen += lines; logPaint(); }
+  }
+
+  // The API cannot resume from an offset, so reconnecting replays the stored
+  // output from the beginning. That is a different thing from continuing, and
+  // it throws away where the reader was — so it is offered, never done.
+  function logOfferReconnect(id) {
+    if (!logStateNode || !id) return;
+    var again = button("tiny", "Reconnect", function () {
+      logStateNode.parentNode.removeChild(again);
+      if (!logPane) return;
+      logPane.textContent = "";
+      logChars = 0;
+      logUnseen = 0;
+      logTruncated = false;
+      logFollow = true;
+      logSetState("reconnecting", "");
+      logStart(id);
+    });
+    again.title = "Replays this job's stored output from the beginning — the controller cannot resume part-way.";
+    logStateNode.parentNode.appendChild(again);
   }
 
   // ---- usage sheets -----------------------------------------------------
