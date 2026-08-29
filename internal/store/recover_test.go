@@ -233,3 +233,77 @@ func TestAutoRecoverTouchesOnlyTheRegisteringWorkersDevices(t *testing.T) {
 	require.Equal(t, model.DeviceUnhealthy, deviceState(t, s, "gpubox:gpu0"),
 		"another worker's device must be untouched by this worker's proof")
 }
+
+// The flap history is the difference between "this device is out" and "this
+// device has used up its automatic returns". AutoRecover has always counted
+// it to decide; nothing could read it.
+func TestRecoveryHistoryReportsWhatTheGuardKnows(t *testing.T) {
+	s, c := newStore(t)
+
+	fresh, err := s.RecoveryHistoryFor("gpubox:gpu0")
+	require.NoError(t, err)
+	require.Empty(t, fresh.Recoveries, "a device that has never flapped has no history")
+	require.Equal(t, 3, fresh.Remaining, "all of its automatic returns are still available")
+	require.Equal(t, 3, fresh.Limit)
+	require.Equal(t, time.Hour, fresh.Window)
+
+	for i := 1; i <= 3; i++ {
+		quarantineIdleDevice(t, s, c)
+		recovered, err := s.AutoRecover("w1", isolated)
+		require.NoError(t, err)
+		require.Len(t, recovered, 1)
+		require.NoError(t, s.RecordHeartbeat("w1", c.Now(), nil))
+		c.Advance(time.Minute)
+
+		h, err := s.RecoveryHistoryFor("gpubox:gpu0")
+		require.NoError(t, err)
+		require.Len(t, h.Recoveries, i)
+		require.Equal(t, 3-i, h.Remaining, "each automatic return spends one")
+	}
+
+	spent, err := s.RecoveryHistoryFor("gpubox:gpu0")
+	require.NoError(t, err)
+	require.Zero(t, spent.Remaining, "the device now waits for a person")
+
+	// Newest first, and each one carries what it was cleared from.
+	require.True(t, spent.Recoveries[0].At.After(spent.Recoveries[2].At))
+	require.Equal(t, "worker_lost", spent.Recoveries[0].Reason)
+}
+
+// The guard's window slides, so the history must too: a device that flapped
+// this morning reads as clean this afternoon.
+func TestRecoveryHistoryForgetsWhatHasAgedOut(t *testing.T) {
+	s, c := newStore(t)
+
+	for range 3 {
+		quarantineIdleDevice(t, s, c)
+		recovered, err := s.AutoRecover("w1", isolated)
+		require.NoError(t, err)
+		require.Len(t, recovered, 1)
+		require.NoError(t, s.RecordHeartbeat("w1", c.Now(), nil))
+	}
+	spent, err := s.RecoveryHistoryFor("gpubox:gpu0")
+	require.NoError(t, err)
+	require.Zero(t, spent.Remaining)
+
+	c.Advance(61 * time.Minute)
+	aged, err := s.RecoveryHistoryFor("gpubox:gpu0")
+	require.NoError(t, err)
+	require.Empty(t, aged.Recoveries, "recoveries outside the window are not this device's problem")
+	require.Equal(t, 3, aged.Remaining)
+}
+
+// One device's flapping says nothing about another's.
+func TestRecoveryHistoryIsPerDevice(t *testing.T) {
+	s, c := newStore(t)
+
+	quarantineIdleDevice(t, s, c)
+	recovered, err := s.AutoRecover("w1", isolated)
+	require.NoError(t, err)
+	require.Len(t, recovered, 1)
+
+	other, err := s.RecoveryHistoryFor("gpubox:gpu1")
+	require.NoError(t, err)
+	require.Empty(t, other.Recoveries)
+	require.Equal(t, 3, other.Remaining)
+}

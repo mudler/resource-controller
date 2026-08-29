@@ -2848,6 +2848,7 @@
 
     // Why it is out of the pool, in full: headline, the host's own words
     // verbatim, and what to do next. This is the reason this panel exists.
+    var flapNote = null;
     if (d.state === "unhealthy") {
       var reason = explain(v.quarantine_reason);
       var note = el("div", "note alarm");
@@ -2855,6 +2856,11 @@
       if (reason.body) note.appendChild(el("p", null, reason.body));
       if (reason.quote) note.appendChild(el("span", "quote", reason.quote));
       if (reason.advice) note.appendChild(el("p", null, reason.advice));
+      // Whether this is the first time or the last straw. Painted from the
+      // describe cache immediately and again when a fresh read lands.
+      flapNote = el("p");
+      note.appendChild(flapNote);
+      paintRecoveries(flapNote, describes[id]);
       workspaceMain.appendChild(note);
     } else if (v.heartbeat_age_seconds > 30 && v.holder) {
       var stale = el("div", "note caution");
@@ -2923,6 +2929,7 @@
     var cached = describes[id];
     paintDescribe(factsBox, v, cached);
     if (cached && Date.now() - cached.fetchedAt < 15000) return;
+
     fetch("/v1/devices/" + encodeURIComponent(id) + "/describe", { headers: authHeaders() })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
@@ -2931,9 +2938,45 @@
         describes[id] = data;
         if (workspaceView.kind === "device" && workspaceView.id === id) {
           paintDescribe(factsBox, v, data);
+          paintRecoveries(flapNote, data);
         }
       })
       .catch(function () { /* the labels from /v1/state still stand */ });
+  }
+
+  // How the flap guard sees this device.
+  //
+  // A quarantined device reads identically whether this is its first failure
+  // or its last straw, and those call for different actions: one is "clear it
+  // and move on", the other is "stop clearing it and look at the hardware".
+  // The controller has always counted this to decide whether to heal the
+  // device itself; describe is where a reader finally sees the same number.
+  function paintRecoveries(node, data) {
+    if (!node) return;
+    node.textContent = "";
+    if (!data || typeof data.recoveries_remaining !== "number") return;
+    var used = (data.recoveries || []).length;
+    // ago() renders an hour as "1h 0m", which reads badly mid-sentence.
+    var secs = data.recovery_window_seconds || 0;
+    var window = !secs ? "the guard's window"
+      : secs % 3600 === 0 ? (secs / 3600) + (secs === 3600 ? " hour" : " hours")
+      : ago(secs);
+    if (!used) {
+      node.appendChild(txt("It has not come back on its own in the last " + window +
+        ", so this is the first time it has needed attention today."));
+      return;
+    }
+    var when = (data.recoveries || []).map(function (r) { return clockAt(instant(r.at)); }).join(", ");
+    node.appendChild(txt("It came back on its own " + used +
+      (used === 1 ? " time" : " times") + " in the last " + window + " — at " + when + ". "));
+    if (data.recoveries_remaining > 0) {
+      node.appendChild(txt(data.recoveries_remaining +
+        (data.recoveries_remaining === 1 ? " automatic return remains" : " automatic returns remain") +
+        " before it stops doing that."));
+    } else {
+      node.appendChild(el("b", null,
+        "It has used up its automatic returns and will not come back by itself — a person has to clear it."));
+    }
   }
 
   function portrait(v) {

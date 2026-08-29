@@ -938,6 +938,21 @@ func TestDashboardWorkspacesReuseTheFleetChart(t *testing.T) {
 	}
 }
 
+// A quarantined device reads identically whether this is its first failure or
+// its last straw, and those call for different actions. The controller has
+// always counted this to decide whether to heal the device itself.
+func TestDashboardShowsWhatTheFlapGuardKnows(t *testing.T) {
+	body := dashboardBody(t)
+	paint := dashboardFunction(t, body, "paintRecoveries")
+	require.Contains(t, paint, "data.recoveries_remaining")
+	require.Contains(t, paint, "data.recovery_window_seconds",
+		"the window comes from the controller, never hardcoded here")
+	require.Contains(t, paint, "It has used up its automatic returns")
+	require.Contains(t, dashboardFunction(t, body, "renderDeviceWorkspace"),
+		"paintRecoveries(flapNote, describes[id])",
+		"the cache paints immediately so reopening a device never flashes empty")
+}
+
 func TestDashboardRunningIsADestination(t *testing.T) {
 	body := dashboardBody(t)
 	require.Contains(t, body, `<button type="button" data-place="running">Running now`)

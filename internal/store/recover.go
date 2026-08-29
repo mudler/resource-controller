@@ -180,3 +180,65 @@ func (s *Store) AutoRecover(workerID string, proof model.RecoveryProof) ([]Recov
 	}
 	return recovered, nil
 }
+
+// RecoveryEvent is one automatic return to the pool, and what the device was
+// out for when it happened.
+type RecoveryEvent struct {
+	At     time.Time
+	Reason string
+}
+
+// RecoveryHistory is what the flap guard knows about one device: the
+// automatic returns still inside its sliding window, and how many it has
+// left before it stops healing itself and waits for a person.
+//
+// AutoRecover has counted this since the guard was written and nothing could
+// read it, so a device out of the pool looked the same whether it had failed
+// once or had exhausted every automatic return it gets. That is the
+// difference between a status and a decision.
+type RecoveryHistory struct {
+	// Recoveries are the returns inside Window, newest first.
+	Recoveries []RecoveryEvent
+	// Remaining is how many automatic returns are left in the window. Zero
+	// means the next quarantine waits for an operator.
+	Remaining int
+	Limit     int
+	Window    time.Duration
+}
+
+// RecoveryHistoryFor reads the guard's own counter for one device.
+//
+// It filters by the window rather than trusting the table to hold only recent
+// rows: AutoRecover prunes lazily, and only for the devices it is considering
+// on that pass, so a device that flapped last week and has been quiet since
+// still has its rows until something else touches it. Reading them as current
+// would report a device as out of automatic returns it has in fact had back
+// for days.
+func (s *Store) RecoveryHistoryFor(deviceID string) (RecoveryHistory, error) {
+	h := RecoveryHistory{Limit: autoRecoveryLimit, Window: autoRecoveryWindow}
+	cutoff := s.clock.Now().Add(-autoRecoveryWindow).Unix()
+	rows, err := s.db.Query(
+		`SELECT at, reason FROM device_recoveries
+		 WHERE device_id = ? AND at >= ?
+		 ORDER BY at DESC`, deviceID, cutoff)
+	if err != nil {
+		return h, fmt.Errorf("read recovery history for %s: %w", deviceID, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var at int64
+		var reason string
+		if err := rows.Scan(&at, &reason); err != nil {
+			return h, err
+		}
+		h.Recoveries = append(h.Recoveries, RecoveryEvent{At: time.Unix(at, 0).UTC(), Reason: reason})
+	}
+	if err := rows.Err(); err != nil {
+		return h, err
+	}
+	h.Remaining = autoRecoveryLimit - len(h.Recoveries)
+	if h.Remaining < 0 {
+		h.Remaining = 0
+	}
+	return h, nil
+}

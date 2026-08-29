@@ -592,3 +592,62 @@ func TestExplainRequiresClientToken(t *testing.T) {
 	defer wrongRole.Body.Close()
 	require.Equal(t, http.StatusForbidden, wrongRole.StatusCode)
 }
+
+// A quarantined device looks the same whether it failed once or has exhausted
+// every automatic return it gets. The controller has always known which —
+// AutoRecover counts it to decide — and describe is where a reader can see it.
+func TestDescribeReportsTheFlapGuard(t *testing.T) {
+	ts, st, _, c := newServer(t)
+
+	reg := post(t, ts, "wtok", "/v1/workers/register", server.RegisterRequest{
+		Host: "gpubox", Devices: []server.DeviceSpec{{Name: "gpu0"}},
+		Labels: map[string]map[string]string{"gpu0": {"vram": "80G"}},
+	})
+	require.Equal(t, http.StatusOK, reg.StatusCode)
+	var registered server.RegisterResponse
+	require.NoError(t, json.NewDecoder(reg.Body).Decode(&registered))
+	reg.Body.Close()
+
+	describe := func() server.DescribeResponse {
+		t.Helper()
+		resp := get(t, ts, "ctok", "/v1/devices/gpubox:gpu0/describe")
+		defer resp.Body.Close()
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		var out server.DescribeResponse
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+		return out
+	}
+
+	// A healthy device that has never flapped still says how many automatic
+	// returns it has, so a reader never has to know the constant themselves.
+	fresh := describe()
+	require.Empty(t, fresh.Recoveries)
+	require.NotNil(t, fresh.RecoveriesRemaining)
+	require.Equal(t, 3, *fresh.RecoveriesRemaining)
+	require.Equal(t, 3600, fresh.RecoveryWindowSeconds)
+
+	for i := 1; i <= 3; i++ {
+		c.Advance(10 * time.Minute)
+		res, err := st.Sweep(30*time.Second, 5*time.Minute, time.Time{})
+		require.NoError(t, err)
+		require.Equal(t, []string{"gpubox:gpu0"}, res.DevicesUnhealthy)
+		recovered, err := st.AutoRecover(registered.WorkerID, model.RecoveryProof{Isolated: true})
+		require.NoError(t, err)
+		require.Len(t, recovered, 1, "recovery %d must happen", i)
+		require.NoError(t, st.RecordHeartbeat(registered.WorkerID, c.Now(), nil))
+		c.Advance(time.Minute)
+	}
+
+	spent := describe()
+	require.Len(t, spent.Recoveries, 3)
+	require.NotNil(t, spent.RecoveriesRemaining)
+	require.Zero(t, *spent.RecoveriesRemaining, "the device now waits for a person")
+
+	// Newest first, each with the reason it was cleared from and an age the
+	// controller measured — never a timestamp the reader has to age itself.
+	require.Equal(t, "worker_lost", spent.Recoveries[0].Reason)
+	require.False(t, spent.Recoveries[0].At.IsZero())
+	require.Less(t, spent.Recoveries[0].AgeSeconds, spent.Recoveries[2].AgeSeconds,
+		"the newest recovery is the youngest")
+	require.Positive(t, spent.Recoveries[0].AgeSeconds)
+}

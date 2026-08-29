@@ -221,6 +221,38 @@ type DescribeResponse struct {
 	// whole box or just this card.
 	SheetIsHostWide bool        `json:"sheet_is_host_wide,omitempty"`
 	RecentJobs      []model.Job `json:"recent_jobs,omitempty"`
+	// Recoveries are this device's automatic returns to the pool inside the
+	// flap guard's sliding window, newest first. A device that quarantines,
+	// clears and quarantines again is describing a real problem, and until
+	// now nothing outside the store could see that it had happened: a device
+	// out of the pool looked identical whether it had failed once or had
+	// spent every automatic return it gets.
+	Recoveries []DeviceRecovery `json:"recoveries,omitempty"`
+	// RecoveriesRemaining is how many automatic returns are left inside the
+	// window. Zero means the next quarantine waits for a person rather than
+	// clearing itself, which is the difference between a status and a
+	// decision — so it is reported even when it is the full allowance, and a
+	// reader never has to know the controller's constant.
+	//
+	// A *int for the same version-skew reason as SheetAgeSeconds: an older
+	// controller omits the field entirely, which decodes to nil and is
+	// distinguishable from a real zero meaning "none left".
+	RecoveriesRemaining *int `json:"recoveries_remaining,omitempty"`
+	// RecoveryWindowSeconds is the width of that sliding window, so a reader
+	// can say "three times in the last hour" without hardcoding the hour.
+	RecoveryWindowSeconds int `json:"recovery_window_seconds,omitempty"`
+}
+
+// DeviceRecovery is one automatic return to the pool.
+type DeviceRecovery struct {
+	At time.Time `json:"at"`
+	// AgeSeconds is measured by the controller against its own clock, for
+	// the same reason every other age on this response is — see
+	// DescribeResponse.LabelAgeSeconds. The absolute timestamp stays too,
+	// for a machine consumer that wants it.
+	AgeSeconds int `json:"age_seconds"`
+	// Reason is the quarantine this recovery cleared the device FROM.
+	Reason string `json:"reason,omitempty"`
 }
 
 // ExplainResponse answers "if I submitted this selector right now, what
@@ -304,6 +336,12 @@ func (s *Server) handleDescribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	history, err := s.cfg.Store.RecoveryHistoryFor(id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "store_error", err.Error())
+		return
+	}
+
 	// Ages are computed here, once, against the controller's own clock —
 	// see DescribeResponse.LabelAgeSeconds's doc comment for why this must
 	// not be left to the CLI to compute against the reader's clock. Deliberately
@@ -328,20 +366,33 @@ func (s *Server) handleDescribe(w http.ResponseWriter, r *http.Request) {
 		sheetAge = &v
 	}
 
+	recoveries := make([]DeviceRecovery, 0, len(history.Recoveries))
+	for _, r := range history.Recoveries {
+		recoveries = append(recoveries, DeviceRecovery{
+			At:         r.At,
+			AgeSeconds: int(now.Sub(r.At).Seconds()),
+			Reason:     r.Reason,
+		})
+	}
+	remaining := history.Remaining
+
 	writeJSON(w, http.StatusOK, DescribeResponse{
-		Device:              view.Device,
-		Holder:              view.Holder,
-		JobID:               view.JobID,
-		ElapsedSeconds:      view.ElapsedSeconds,
-		HeartbeatAgeSeconds: view.HeartbeatAgeSeconds,
-		QuarantineReason:    view.QuarantineReason,
-		Labels:              labels,
-		LabelAgeSeconds:     labelAges,
-		Sheet:               sheet,
-		SheetUpdatedAt:      sheetAt,
-		SheetAgeSeconds:     sheetAge,
-		SheetIsHostWide:     sheetIsHostWide,
-		RecentJobs:          recent,
+		Device:                view.Device,
+		Holder:                view.Holder,
+		JobID:                 view.JobID,
+		ElapsedSeconds:        view.ElapsedSeconds,
+		HeartbeatAgeSeconds:   view.HeartbeatAgeSeconds,
+		QuarantineReason:      view.QuarantineReason,
+		Labels:                labels,
+		LabelAgeSeconds:       labelAges,
+		Sheet:                 sheet,
+		SheetUpdatedAt:        sheetAt,
+		SheetAgeSeconds:       sheetAge,
+		SheetIsHostWide:       sheetIsHostWide,
+		RecentJobs:            recent,
+		Recoveries:            recoveries,
+		RecoveriesRemaining:   &remaining,
+		RecoveryWindowSeconds: int(history.Window.Seconds()),
 	})
 }
 
