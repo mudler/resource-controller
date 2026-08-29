@@ -313,6 +313,35 @@
   .ev.good .ev-text b { color:var(--ink); }
   .feed-note { font-size:11.5px; color:var(--faint); margin:8px 2px 0; }
 
+  /* ---- the life of one run ------------------------------------------
+     A job's own axis: the wait for a card, the run so far, and the moment
+     the controller will stop it. max_runtime_seconds is a real field, so
+     that moment is a fact rather than an estimate. */
+  .life { border:1px solid var(--line); border-radius:10px; background:var(--panel);
+          padding:13px 15px 14px; }
+  .life-top { display:flex; align-items:baseline; gap:var(--sp-3); margin-bottom:9px;
+              font-size:12px; color:var(--muted); }
+  .life-top .t { margin-left:auto; font-variant-numeric:tabular-nums; }
+  .life-track { position:relative; height:24px; border-radius:5px; background:var(--sunk); overflow:hidden; }
+  .life-seg { position:absolute; top:0; bottom:0; display:flex; align-items:center; padding:0 9px;
+              font-size:11px; font-weight:600; white-space:nowrap; overflow:hidden; color:#fff; }
+  .life-seg.queued { color:var(--ink-2);
+    background-image:repeating-linear-gradient(45deg,var(--line-2) 0 6px,transparent 6px 12px); }
+  .life-seg.run { background:var(--job-mine); }
+  .life-seg.run.other { background:var(--job-other); }
+  .life-seg.left { background:none; color:var(--muted); font-weight:500; }
+  .life-cap { position:absolute; top:0; bottom:0; width:0; border-left:2px solid var(--bad); z-index:3; }
+  .life-marks { position:relative; height:15px; margin-top:4px; }
+  .life-mark { position:absolute; transform:translateX(-50%); white-space:nowrap; font-size:10.5px;
+               font-weight:500; color:var(--faint);
+               font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  .life-mark.at-start { transform:none; }
+  .life-mark.at-end { transform:translateX(-100%); }
+  .life-mark.now { color:var(--accent); font-weight:600; }
+  .life-mark.cap { color:var(--bad); }
+  .life-say { margin-top:10px; font-size:12.5px; color:var(--muted); }
+  .life-say b { color:var(--ink-2); font-weight:600; }
+
   /* ---- the day ------------------------------------------------------
      Devices are lanes and jobs are bars across them. Occupancy is ink and
      availability is the whitespace between bars: the gaps ARE the free
@@ -404,9 +433,21 @@
   .workspace-kind { display:block; font-size:11px; color:var(--muted); letter-spacing:.08em;
                     text-transform:uppercase; }
   .workspace-body { max-width:none; }
-  .workspace-columns { display:grid; grid-template-columns:minmax(0,1fr) minmax(340px,.8fr);
-                       gap:var(--sp-6); align-items:start; }
-  .workspace-details, .workspace-output { min-width:0; }
+  /* The output is what the reader came for, so it gets the room and the
+     facts get a rail. This was the other way round, with the log in the
+     narrower column at a fixed 260px — the same twelve lines on a laptop and
+     on a 4K display. */
+  .workspace-body.job-layout { display:grid; grid-template-columns:minmax(0,320px) minmax(0,1fr);
+                               gap:20px 26px; align-items:start; }
+  #workspaceLife { grid-column:1 / -1; }
+  /* A DEFINITE height, not a minimum. Inside a grid whose items size to their
+     content, flex:1 on a min-height box just grows forever: the pane never
+     overflows, so it never scrolls, and "is the reader at the bottom" is
+     trivially true no matter how much output arrives. */
+  .workspace-output { display:flex; flex-direction:column; min-width:0;
+                      height:clamp(320px,62vh,900px); }
+  .workspace-output > .block { display:flex; flex-direction:column; flex:1; min-height:0; margin:0; }
+  .workspace-output .log { height:auto; flex:1; min-height:0; }
   .workspace-tabs { display:none; }
   .host-devices { margin-top:22px; }
   .host-open { border:0; background:none; color:inherit; font:inherit; padding:0; cursor:pointer; }
@@ -415,13 +456,13 @@
              line-height:1; cursor:pointer; padding:4px 7px; border-radius:7px; }
   .iconbtn:hover { color:var(--accent); background:var(--hover); }
   @media (max-width:760px) {
-    .workspace-columns { display:block; }
+    .workspace-body.job-layout { display:block; }
     .workspace-tabs { display:flex; gap:var(--sp-2); margin-bottom:16px; border-bottom:1px solid var(--line); }
     .workspace-tabs button { border:0; border-bottom:2px solid transparent; background:none;
                              color:var(--muted); padding:8px 2px; margin-right:14px; font:inherit; cursor:pointer; }
     .workspace-tabs button[aria-selected="true"] { color:var(--ink); border-color:var(--accent); }
-    .workspace-columns[data-tab="details"] .workspace-output,
-    .workspace-columns[data-tab="output"] .workspace-details { display:none; }
+    .workspace-body[data-tab="details"] .workspace-output,
+    .workspace-body[data-tab="output"] #workspaceMain { display:none; }
   }
 
   .big { font-size:19px; font-weight:600; letter-spacing:-.015em; margin:0 0 2px; }
@@ -480,12 +521,13 @@
           border-radius:7px; padding:2px 8px; font:inherit; font-size:11.5px; cursor:pointer; }
   .tiny:hover { border-color:var(--accent); color:var(--accent); }
 
-  /* The live log. Fixed height so the workspace's own layout never jumps as
-     output arrives, and it sticks to the bottom only while the reader is
-     already there — scrolling up to read something must not be undone by
-     the next chunk. */
+  /* The live log. It takes the height its column gives it rather than a
+     fixed 260px, which was twelve lines on a laptop and twelve lines on a 4K
+     display. It still sticks to the bottom only while the reader is already
+     there — scrolling up to read something must not be undone by the next
+     chunk. */
   .log { background:var(--sunk); border:1px solid var(--line); border-radius:8px;
-         padding:10px 12px; font-size:12px; line-height:1.5; height:260px; overflow:auto;
+         padding:10px 12px; font-size:12px; line-height:1.5; overflow:auto;
          white-space:pre-wrap; word-break:break-word; color:var(--ink-2); margin:0; }
   .log-status { font-size:11.5px; color:var(--faint); margin:6px 2px 0; display:flex; gap:var(--sp-2); }
   .log-status .streaming { color:var(--ready); }
@@ -633,7 +675,15 @@
         <h2 id="workspaceHeading" tabindex="-1"></h2>
       </div>
     </div>
-    <div id="workspaceBody" class="workspace-body"></div>
+    <!-- Three children, and the third is the point: the output pane holds a
+         live stream and a reader's scroll position, so it must never be
+         removed from the document. A refresh rebuilds the first two and
+         leaves it alone. -->
+    <div id="workspaceBody" class="workspace-body">
+      <div id="workspaceLife"></div>
+      <div id="workspaceMain"></div>
+      <div id="workspaceOutput" class="workspace-output hide"></div>
+    </div>
   </section>
 </main>
 
@@ -2341,6 +2391,9 @@
 
   var workspaceView = { kind: "fleet" };
   var workspaceBody = document.getElementById("workspaceBody");
+  var workspaceLife = document.getElementById("workspaceLife");
+  var workspaceMain = document.getElementById("workspaceMain");
+  var workspaceOutput = document.getElementById("workspaceOutput");
   var workspaceHeading = document.getElementById("workspaceHeading");
   var workspaceTrigger = null;
   var workspaceTriggerView = null;
@@ -2438,6 +2491,7 @@
     function select(name, detailButton, outputButton) {
       name = selectJobWorkspaceTab(id, name);
       columns.setAttribute("data-tab", name);
+      workspaceBody.setAttribute("data-tab", name);
       detailButton.setAttribute("aria-selected", String(name === "details"));
       outputButton.setAttribute("aria-selected", String(name === "output"));
     }
@@ -2492,7 +2546,18 @@
     overview.classList.add("hide");
     who.classList.add("hide");
     workspace.classList.remove("hide");
-    workspaceBody.textContent = "";
+    // Not workspaceBody. The output pane inside it holds a live stream and
+    // the reader's scroll position, and removing an element from the document
+    // resets scrollTop on every scroller inside it — which is precisely how
+    // follow mode has been dying every five seconds since it was written. The
+    // facts around it are rebuilt; the stream is left where it is.
+    workspaceLife.textContent = "";
+    workspaceMain.textContent = "";
+    workspaceBody.classList.toggle("job-layout", workspaceView.kind === "job");
+    if (workspaceView.kind !== "job") {
+      workspaceOutput.textContent = "";
+      workspaceOutput.classList.add("hide");
+    }
     document.getElementById("workspaceKind").textContent = workspaceView.kind;
     if (workspaceView.kind === "host") renderHostWorkspace(workspaceView.id);
     else if (workspaceView.kind === "device") renderDeviceWorkspace(workspaceView.id);
@@ -2857,7 +2922,7 @@
     workspaceHeading.textContent = "job " + id.slice(0, 8);
     var known = jobIndex[id];
     var meta = el("div");
-    workspaceBody.appendChild(meta);
+    workspaceMain.appendChild(meta);
     if (known) paintJob(meta, id, known, null);
     else meta.appendChild(el("p", "under", "loading…"));
 
@@ -2880,18 +2945,169 @@
       });
   }
 
+  // ---- the life of one run ----------------------------------------------
+  //
+  // Geometry only, so it can be reasoned about and tested without a document.
+  // A job has a shape the fleet chart cannot show: it waited, then it ran, and
+  // if it declared max_runtime_seconds there is a moment the controller will
+  // stop it. That last one is a stored field, so it is a fact rather than a
+  // projection.
+  function lifeSegments(job, nowMs) {
+    var sub = instant(job.submitted_at);
+    if (!isFinite(sub)) return null;
+    var start = instant(job.started_at);
+    var hasStart = isFinite(start);
+    var fin = job.finished_at ? instant(job.finished_at) : NaN;
+    var done = isFinite(fin);
+    var running = hasStart && !done;
+    var end = done ? fin : nowMs;
+    if (hasStart && end < start) end = start;
+    var limitMs = (job.max_runtime_seconds || 0) * 1000;
+    var cap = running && limitMs ? start + limitMs : null;
+    var edge = cap !== null ? cap : end;
+    var to = sub + Math.max(60000, edge - sub) * 1.04;
+    function pct(ms) { return (ms - sub) / (to - sub) * 100; }
+    var waitEnd = hasStart ? start : nowMs;
+    return {
+      queuedWidth: pct(waitEnd),
+      runLeft: hasStart ? pct(start) : null,
+      runWidth: hasStart ? pct(end) - pct(start) : null,
+      capLeft: cap !== null ? pct(cap) : null,
+      nowLeft: pct(nowMs),
+      running: running,
+      done: done,
+      waitedSeconds: Math.round((waitEnd - sub) / 1000),
+      ranSeconds: hasStart ? Math.round((end - start) / 1000) : 0,
+      leftSeconds: cap !== null ? Math.round((cap - nowMs) / 1000) : null,
+      submittedAt: sub,
+      startedAt: hasStart ? start : null,
+      endedAt: done ? fin : null,
+      capAt: cap,
+      axisFrom: sub,
+      axisTo: to
+    };
+  }
+
+  function jobLife(job, nowMs) {
+    var g = lifeSegments(job, nowMs);
+    if (!g) return null;
+    var mine = job.submitter && job.submitter === identity;
+    var box = el("div", "life");
+
+    var top = el("div", "life-top");
+    top.appendChild(el("span", null, "Life of this run"));
+    var head = g.running && g.leftSeconds !== null
+      ? ago(g.ranSeconds) + " of a " + ago(job.max_runtime_seconds) + " limit"
+      : g.done ? "ran for " + ago(g.ranSeconds)
+      : g.running ? ago(g.ranSeconds) + " · no limit set"
+      : "waiting " + ago(g.waitedSeconds);
+    top.appendChild(el("span", "t", head));
+    box.appendChild(top);
+
+    var track = el("div", "life-track");
+    if (g.queuedWidth > 0) {
+      var q = el("div", "life-seg queued", "queued " + ago(g.waitedSeconds));
+      q.style.left = "0";
+      q.style.width = g.queuedWidth + "%";
+      track.appendChild(q);
+    }
+    if (g.runLeft !== null) {
+      var r = el("div", "life-seg run" + (mine ? "" : " other"),
+        (g.running ? "running " : "ran ") + ago(g.ranSeconds));
+      r.style.left = g.runLeft + "%";
+      r.style.width = g.runWidth + "%";
+      track.appendChild(r);
+    }
+    if (g.capLeft !== null) {
+      var left = el("div", "life-seg left", ago(g.leftSeconds) + " before the limit stops it");
+      left.style.left = g.nowLeft + "%";
+      left.style.width = (g.capLeft - g.nowLeft) + "%";
+      track.appendChild(left);
+      var cap = el("div", "life-cap");
+      cap.style.left = g.capLeft + "%";
+      track.appendChild(cap);
+    }
+    box.appendChild(track);
+
+    // Ordered by what the reader needs most, then thinned so none overprints.
+    var wanted = [{ at: 0, text: "submitted " + clockAt(g.submittedAt), cls: "" }];
+    if (g.capAt !== null) {
+      wanted.push({ at: lifePct(g, g.capAt), text: "limit " + clockAt(g.capAt), cls: "cap" });
+    }
+    if (g.running) wanted.push({ at: g.nowLeft, text: "now", cls: "now" });
+    if (g.endedAt !== null) {
+      wanted.push({ at: lifePct(g, g.endedAt), text: "ended " + clockAt(g.endedAt), cls: "" });
+    }
+    if (g.startedAt !== null) {
+      wanted.push({ at: lifePct(g, g.startedAt), text: "started " + clockAt(g.startedAt), cls: "" });
+    }
+    var marks = el("div", "life-marks");
+    thinMarks(wanted, 9).forEach(function (m) {
+      var edge = m.at < 4 ? " at-start" : m.at > 96 ? " at-end" : "";
+      var node = el("div", "life-mark" + (m.cls ? " " + m.cls : "") + edge, m.text);
+      node.style.left = m.at + "%";
+      marks.appendChild(node);
+    });
+    box.appendChild(marks);
+
+    var say = el("div", "life-say");
+    if (g.startedAt === null) {
+      say.appendChild(txt("Waiting "));
+      say.appendChild(el("b", null, ago(g.waitedSeconds)));
+      say.appendChild(txt(" for a device. Nothing has run yet."));
+    } else {
+      say.appendChild(txt("Waited "));
+      say.appendChild(el("b", null, ago(g.waitedSeconds)));
+      say.appendChild(txt(" for a device, then "));
+      say.appendChild(el("b", null, (g.running ? "has run " : "ran ") + ago(g.ranSeconds)));
+      if (g.capAt !== null) {
+        say.appendChild(txt(". The controller stops it at "));
+        say.appendChild(el("b", null, clockAt(g.capAt)));
+        say.appendChild(txt(" unless it finishes first."));
+      } else {
+        say.appendChild(txt("."));
+      }
+    }
+    box.appendChild(say);
+    return box;
+  }
+
+  // Marks that land on top of each other are worse than a missing mark: a run
+  // submitted eight minutes before it started puts two labels in the same
+  // place on a twelve-hour axis, and they overprint into nonsense. Keep them
+  // in order of what the reader needs, and drop any that cannot clear the one
+  // before it. Nothing is lost — the sentence under the strip states every
+  // one of these times in words.
+  function thinMarks(marks, minGap) {
+    var kept = [];
+    for (var i = 0; i < marks.length; i++) {
+      var clash = false;
+      for (var k = 0; k < kept.length; k++) {
+        if (Math.abs(kept[k].at - marks[i].at) < minGap) { clash = true; break; }
+      }
+      if (!clash) kept.push(marks[i]);
+    }
+    return kept.sort(function (a, b) { return a.at - b.at; });
+  }
+
+  // The marks share the segments' axis rather than recomputing one, so the
+  // two cannot drift apart.
+  function lifePct(g, ms) {
+    return (ms - g.axisFrom) / (g.axisTo - g.axisFrom) * 100;
+  }
+
   function paintJob(box, id, job, queuePosition) {
     box.textContent = "";
     var root = box;
-    var columns = el("div", "workspace-columns");
-    var details = el("div", "workspace-details");
-    var output = el("div", "workspace-output");
-    var tabs = buildJobWorkspaceTabs(id, columns);
-    columns.appendChild(details);
-    columns.appendChild(output);
+    var tabs = buildJobWorkspaceTabs(id, root);
     root.appendChild(tabs);
-    root.appendChild(columns);
-    box = details;
+
+    // The life of this run sits above both columns, because it is the one
+    // thing here that is true of the whole job rather than of its facts or
+    // its output.
+    workspaceLife.textContent = "";
+    var life = jobLife(job, controllerNow());
+    if (life) workspaceLife.appendChild(life);
 
     var stateClass = job.state === "failed" || job.state === "lost" ? "failed"
       : job.state === "succeeded" ? "done" : "busy";
@@ -2988,12 +3204,21 @@
     // the top of the file every five seconds, which is both a waste of the
     // controller's file handles and unreadable. It IS rebuilt when a job
     // that had nothing to show starts running.
+    // Built once per job and then left exactly where it is. Re-creating it
+    // would restart the stream from the top of the stored file on every
+    // refresh; re-appending it would reset the reader's scroll. It IS rebuilt
+    // when a job that had nothing to show starts running.
     if (logBlock === null || logBlockJob !== id || (logBlockQueued && job.state !== "queued")) {
       logBlock = logSection(id, job);
       logBlockJob = id;
       logBlockQueued = job.state === "queued";
+      workspaceOutput.textContent = "";
+      workspaceOutput.appendChild(logBlock);
+    } else if (logBlock.parentNode !== workspaceOutput) {
+      workspaceOutput.textContent = "";
+      workspaceOutput.appendChild(logBlock);
     }
-    output.appendChild(logBlock);
+    workspaceOutput.classList.remove("hide");
   }
 
   function terminalState(s) {

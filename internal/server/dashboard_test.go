@@ -676,6 +676,159 @@ func TestDashboardRestoresTheDayAsTheOverviewMode(t *testing.T) {
 	require.NotContains(t, body, `var overviewMode = "bays"`)
 }
 
+// The regression that outlived two redesigns. renderWorkspace used to empty
+// the whole workspace body on every five-second refresh, which detached the
+// log element; detaching a node resets scrollTop on every scroller inside it,
+// so the pane snapped to the top of the buffer and the atBottom check that
+// drives follow mode read false forever after.
+func TestDashboardNeverReparentsTheLogPane(t *testing.T) {
+	body := dashboardBody(t)
+	render := dashboardFunction(t, body, "renderWorkspace")
+	require.NotContains(t, render, `workspaceBody.textContent = ""`,
+		"clearing the whole workspace body detaches the live log and resets its scroll")
+	require.Contains(t, render, `workspaceLife.textContent = ""`)
+	require.Contains(t, render, `workspaceMain.textContent = ""`)
+
+	// The output pane is a persistent sibling, emptied only when the
+	// workspace stops being a job at all.
+	require.Contains(t, body, `<div id="workspaceOutput" class="workspace-output hide"></div>`)
+	paint := dashboardFunction(t, body, "paintJob")
+	require.Contains(t, paint, "logBlock.parentNode !== workspaceOutput",
+		"an already-mounted log pane must be left where it is")
+}
+
+// The output is what the reader opened the job for. It used to be the
+// narrower of two columns at a fixed 260px — the same twelve lines on a
+// laptop and on a 4K display.
+func TestDashboardOutputGetsTheRoom(t *testing.T) {
+	body := dashboardBody(t)
+	require.Contains(t, body,
+		".workspace-body.job-layout { display:grid; grid-template-columns:minmax(0,320px) minmax(0,1fr);")
+	// A definite height, not a minimum: inside a content-sized grid item a
+	// flex:1 pane with only a min-height grows instead of scrolling, and then
+	// the at-the-bottom check that drives follow mode is always true.
+	require.Contains(t, body, "height:clamp(320px,62vh,900px);")
+	require.Contains(t, body, ".workspace-output .log { height:auto; flex:1; min-height:0; }")
+	require.NotContains(t, body, "height:260px",
+		"the log takes the height its column gives it, not a fixed twelve lines")
+}
+
+func TestDashboardJobLifeSegments(t *testing.T) {
+	const prelude = `var NOW = Date.parse("2026-08-29T15:20:00Z");`
+
+	tests := []struct {
+		name    string
+		job     string
+		nilOK   bool
+		waited  int
+		ran     int
+		left    *int
+		running bool
+		hasCap  bool
+	}{
+		{
+			name: "a running job with a limit knows when it will be stopped",
+			job: `{submitted_at:"2026-08-29T12:55:00Z", started_at:"2026-08-29T13:06:00Z",` +
+				` finished_at:null, max_runtime_seconds:43200}`,
+			waited: 11 * 60, ran: 134 * 60, left: intp(43200 - 134*60), running: true, hasCap: true,
+		},
+		{
+			name: "a running job with no limit has no cap to draw",
+			job: `{submitted_at:"2026-08-29T12:55:00Z", started_at:"2026-08-29T13:06:00Z",` +
+				` finished_at:null, max_runtime_seconds:0}`,
+			waited: 11 * 60, ran: 134 * 60, running: true, hasCap: false,
+		},
+		{
+			name: "a queued job has waited but never ran",
+			job: `{submitted_at:"2026-08-29T14:42:00Z", started_at:null, finished_at:null,` +
+				` max_runtime_seconds:3600}`,
+			waited: 38 * 60, ran: 0, running: false, hasCap: false,
+		},
+		{
+			name: "a finished job stops at its end, not at now",
+			job: `{submitted_at:"2026-08-29T09:00:00Z", started_at:"2026-08-29T09:12:00Z",` +
+				` finished_at:"2026-08-29T12:55:00Z", max_runtime_seconds:43200}`,
+			waited: 12 * 60, ran: 223 * 60, running: false, hasCap: false,
+		},
+		{
+			name:  "a job with no submitted_at has no strip",
+			job:   `{submitted_at:null, started_at:null, finished_at:null}`,
+			nilOK: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got *struct {
+				Waited  int      `json:"waitedSeconds"`
+				Ran     int      `json:"ranSeconds"`
+				Left    *int     `json:"leftSeconds"`
+				Running bool     `json:"running"`
+				CapLeft *float64 `json:"capLeft"`
+				NowLeft float64  `json:"nowLeft"`
+			}
+			runDashboardJSWithPrelude(t, []string{"instant", "lifeSegments"}, prelude,
+				"lifeSegments("+tt.job+", NOW)", &got)
+			if tt.nilOK {
+				require.Nil(t, got)
+				return
+			}
+			require.NotNil(t, got)
+			require.Equal(t, tt.waited, got.Waited, "wait for a device")
+			require.Equal(t, tt.ran, got.Ran, "time spent running")
+			require.Equal(t, tt.running, got.Running)
+			if tt.hasCap {
+				require.NotNil(t, got.CapLeft, "a running job with a limit draws its cap")
+				require.NotNil(t, tt.left)
+				require.NotNil(t, got.Left)
+				require.Equal(t, *tt.left, *got.Left)
+				require.Greater(t, *got.CapLeft, got.NowLeft, "the limit is ahead of now")
+			} else {
+				require.Nil(t, got.CapLeft)
+			}
+		})
+	}
+}
+
+func intp(v int) *int { return &v }
+
+// Two labels in the same place overprint into nonsense — a job submitted eight
+// minutes before it started puts "submitted" and "started" on top of each
+// other on a twelve-hour axis. Nothing is lost by dropping one: the sentence
+// under the strip states every time in words.
+func TestDashboardLifeMarksDoNotOverprint(t *testing.T) {
+	tests := []struct {
+		name  string
+		marks string
+		want  []string
+	}{
+		{
+			name:  "a mark that cannot clear the one before it is dropped",
+			marks: `[{at:0,text:"submitted"},{at:96,text:"limit"},{at:18,text:"now"},{at:1.1,text:"started"}]`,
+			want:  []string{"submitted", "now", "limit"},
+		},
+		{
+			name:  "well separated marks all survive, in axis order",
+			marks: `[{at:0,text:"submitted"},{at:95,text:"limit"},{at:40,text:"now"},{at:20,text:"started"}]`,
+			want:  []string{"submitted", "started", "now", "limit"},
+		},
+		{
+			name:  "priority decides which of a colliding pair survives",
+			marks: `[{at:50,text:"now"},{at:52,text:"started"}]`,
+			want:  []string{"now"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got []string
+			runDashboardJSWithPrelude(t, []string{"thinMarks"}, "",
+				"thinMarks("+tt.marks+", 9).map(function (m) { return m.text; })", &got)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestDashboardMatrixMode(t *testing.T) {
 	body := dashboardBody(t)
 	require.Contains(t, body, "function setFleetMode(mode)")
@@ -750,13 +903,15 @@ return relatedDeviceViews(deviceIndex.a).map(function(v){return v.device.id});
 
 func TestDashboardWorkspaceRouting(t *testing.T) {
 	prelude := `
-function node() { return {classList:{values:{},add:function(k){this.values[k]=true},remove:function(k){delete this.values[k]}},style:{},focus:function(){document.activeElement=this}} }
+function node() { return {classList:{values:{},add:function(k){this.values[k]=true},remove:function(k){delete this.values[k]},toggle:function(k,on){if(on){this.values[k]=true}else{delete this.values[k]}}},style:{},focus:function(){document.activeElement=this}} }
 var nodes={fleetOverview:node(),whoBar:node(),workspace:node(),workspaceKind:node()};
 var document={activeElement:null,contains:function(n){return !!n},querySelectorAll:function(){return []},getElementById:function(id){return nodes[id]}};
 var trigger=node(); document.activeElement=trigger;
 var window={scrollY:73,location:{hash:"#fleet"},history:{replaceState:function(_a,_b,h){window.location.hash=h}},scrollTo:function(_x,y){window.scrollY=y},matchMedia:function(){return {matches:true}}};
 var workspaceView={kind:"fleet"}, workspaceBody=node(), workspaceHeading=node(), workspaceTrigger=null, workspaceTriggerView=null;
 workspaceBody.appendChild=function(){}; workspaceBody.textContent="";
+var workspaceLife=node(), workspaceMain=node(), workspaceOutput=node();
+[workspaceLife,workspaceMain,workspaceOutput].forEach(function(n){n.appendChild=function(){}; n.textContent="";});
 var overviewScrollY=0,overviewMode="bays",fleetMode="matrix",reduceMotion={matches:true},rendered="";
 function dropLogBlock(){} function setFleetMode(m){fleetMode=m} function renderHostWorkspace(id){rendered="host:"+id}
 function renderDeviceWorkspace(id){rendered="device:"+id} function renderJobWorkspace(id){rendered="job:"+id}
@@ -798,9 +953,13 @@ func TestDashboardWorkspaceJobTabPersistsAcrossRepaints(t *testing.T) {
 	runDashboardJSWithPrelude(t, []string{"jobWorkspaceTabFor", "selectJobWorkspaceTab", "resetJobWorkspaceTab", "buildJobWorkspaceTabs"},
 		`var jobWorkspaceTab="details", jobWorkspaceTabID=null;
 function n(){return {attrs:{},children:[],listeners:{},setAttribute:function(k,v){this.attrs[k]=v},appendChild:function(v){this.children.push(v)}}}
-function el(){return n()} function button(_c,_t,fn){var b=n();b.listeners.click=fn;return b}`,
-		`(() => { var out=[]; var first=n(); var tabs=buildJobWorkspaceTabs("one",first); out.push(first.attrs["data-tab"]); tabs.children[1].listeners.click(); var repaint=n(); buildJobWorkspaceTabs("one",repaint); out.push(repaint.attrs["data-tab"]); var next=n(); buildJobWorkspaceTabs("two",next); out.push(next.attrs["data-tab"]); resetJobWorkspaceTab(); var closed=n(); buildJobWorkspaceTabs("two",closed); out.push(closed.attrs["data-tab"]); return out; })()`, &got)
-	require.Equal(t, []string{"details", "output", "details", "details"}, got)
+function el(){return n()} function button(_c,_t,fn){var b=n();b.listeners.click=fn;return b}
+var workspaceBody=n();`,
+		`(() => { var out=[]; var first=n(); var tabs=buildJobWorkspaceTabs("one",first); out.push(first.attrs["data-tab"]); tabs.children[1].listeners.click(); var repaint=n(); buildJobWorkspaceTabs("one",repaint); out.push(repaint.attrs["data-tab"]); var next=n(); buildJobWorkspaceTabs("two",next); out.push(next.attrs["data-tab"]); resetJobWorkspaceTab(); var closed=n(); buildJobWorkspaceTabs("two",closed); out.push(closed.attrs["data-tab"]); out.push(workspaceBody.attrs["data-tab"]); return out; })()`, &got)
+	// The last entry is the body's own marker: the narrow-screen tabs switch
+	// the whole workspace now, because the output pane is a sibling of the
+	// facts rather than a child of an inner grid.
+	require.Equal(t, []string{"details", "output", "details", "details", "details"}, got)
 }
 
 func TestDashboardHostWorkspaceLoadsEveryDevicesHistory(t *testing.T) {
