@@ -634,12 +634,117 @@
   var jobIndex = {};        // job id -> job, from every state and every fetch
   var prevDevices = null;   // device id -> {state, holder, kind}, for the feed diff
   var describes = {};       // device id -> /v1/devices/{id}/describe response
+  // The working day. /v1/jobs has served this since job history landed and
+  // this page has never once asked for it — so every previous version of the
+  // dashboard could only ever draw an instant. Every bar on the timeline, and
+  // every utilization figure derived from one, comes from here.
+  var history = [];         // recent jobs from /v1/jobs, newest first
+  var historyFetchedAt = 0; // this browser's clock, used only as a delta
 
   var gate = document.getElementById("gate");
   var app = document.getElementById("app");
   var err = document.getElementById("err");
   var act = document.getElementById("act");
   var pollTimer = null, freshTimer = null, es = null, lastFetchAt = null, nudgePending = false;
+
+  // ---- the controller's clock -------------------------------------------
+  //
+  // Every age and wait on the wire is computed by the controller, and
+  // client_api.go says exactly why: a reader's clock must not be able to make
+  // a stuck queue look fresh. The timeline is the first thing on this page
+  // that places ABSOLUTE timestamps on a shared axis — a job started at
+  // 13:06 — so drawing it against Date.now() would reintroduce that exposure
+  // for the whole chart rather than for a single field.
+  //
+  // So the axis is anchored on the controller instead. Every response already
+  // carries a Date header, which is the controller's own clock and costs no
+  // API change. The offset between it and this browser is recorded on each
+  // read, and every position, tick and duration is derived from the corrected
+  // value. A browser an hour behind draws the same picture as one that is
+  // right.
+  //
+  // The header has one-second granularity and is a network hop old by the
+  // time it is read. The smallest unit on the chart is a minute, so neither
+  // matters. This is an anchor, not a synchronisation protocol.
+  var clockSkewMs = 0;      // controller clock minus this browser's clock
+
+  function anchorClock(response) {
+    var header = response.headers.get("Date");
+    if (!header) return false;
+    var at = Date.parse(header);
+    if (!isFinite(at)) return false;
+    clockSkewMs = at - Date.now();
+    return true;
+  }
+
+  // Now, as the controller would say it.
+  function controllerNow() { return Date.now() + clockSkewMs; }
+
+  // One RFC 3339 timestamp from the API as milliseconds. Parsing a server
+  // timestamp is not the mistake the comment above guards against; comparing
+  // one to an unanchored browser clock is. Everything here is compared
+  // against controllerNow.
+  function instant(ts) {
+    if (!ts) return NaN;
+    return Date.parse(ts);
+  }
+
+  // Where one job sits on an axis, as percentages of the window. Clipped at
+  // both ends so a run that began before the window opened, or has not ended
+  // at all, still draws — and floored to a visible width so a four-second job
+  // is a mark rather than nothing. Returns null when the job does not touch
+  // the window at all.
+  function barSpan(job, fromMs, toMs, nowMs) {
+    var span = toMs - fromMs;
+    if (span <= 0) return null;
+    var a = instant(job.started_at);
+    if (!isFinite(a)) return null;
+    var b = job.finished_at ? instant(job.finished_at) : nowMs;
+    if (!isFinite(b) || b < a) b = a;
+    if (b <= fromMs || a >= toMs) return null;
+    var left = (Math.max(a, fromMs) - fromMs) / span * 100;
+    var width = (Math.min(b, toMs) - fromMs) / span * 100 - left;
+    if (width < 0.35) width = 0.35;
+    if (left + width > 100) left = 100 - width;
+    return {
+      left: left,
+      width: width,
+      clippedStart: a < fromMs,
+      clippedEnd: b > toMs
+    };
+  }
+
+  // How many seconds of a window a device actually spent held. Derived from
+  // the same job records the bars are drawn from, which is why utilization
+  // needs no endpoint and no stored metric. Overlapping leases are merged
+  // rather than summed: a device cannot be more than fully busy, and a
+  // reconciled lease can legitimately overlap the one it replaced.
+  function busySeconds(jobs, deviceID, fromMs, toMs, nowMs) {
+    var spans = [];
+    for (var i = 0; i < jobs.length; i++) {
+      var j = jobs[i];
+      if (j.device_id !== deviceID) continue;
+      var a = instant(j.started_at);
+      if (!isFinite(a)) continue;
+      var b = j.finished_at ? instant(j.finished_at) : nowMs;
+      if (!isFinite(b) || b < a) continue;
+      var lo = Math.max(a, fromMs), hi = Math.min(b, toMs);
+      if (hi > lo) spans.push([lo, hi]);
+    }
+    spans.sort(function (x, y) { return x[0] - y[0]; });
+    var total = 0, start = -1, end = -1;
+    for (var k = 0; k < spans.length; k++) {
+      if (spans[k][0] > end) {
+        if (end > start) total += end - start;
+        start = spans[k][0];
+        end = spans[k][1];
+      } else if (spans[k][1] > end) {
+        end = spans[k][1];
+      }
+    }
+    if (end > start) total += end - start;
+    return Math.round(total / 1000);
+  }
 
   // ---- small DOM helpers ------------------------------------------------
   //
@@ -2795,7 +2900,37 @@
           throw new Error("token rejected");
         }
         if (!r.ok) throw new Error("state: " + r.status);
+        anchorClock(r);
         return r.json();
+      });
+  }
+
+  // A finished job never changes again, so the day is re-read on its own
+  // slower cadence rather than with every five-second state poll.
+  var HISTORY_LIMIT = 200;            // the server's own ceiling on this route
+  var HISTORY_MIN_INTERVAL_MS = 15000;
+
+  function fetchHistory(force) {
+    if (!force && historyFetchedAt &&
+        Date.now() - historyFetchedAt < HISTORY_MIN_INTERVAL_MS) {
+      return Promise.resolve(history);
+    }
+    return fetch("/v1/jobs?limit=" + HISTORY_LIMIT, { headers: authHeaders() })
+      .catch(function () { throw new Error("cannot reach the controller"); })
+      .then(function (r) {
+        if (r.status === 401 || r.status === 403) {
+          returnToGate();
+          throw new Error("token rejected");
+        }
+        if (!r.ok) throw new Error("jobs: " + r.status);
+        anchorClock(r);
+        return r.json();
+      })
+      .then(function (body) {
+        history = (body && body.jobs) || [];
+        historyFetchedAt = Date.now();
+        history.forEach(function (j) { jobIndex[j.id] = j; });
+        return history;
       });
   }
 
@@ -2817,6 +2952,11 @@
   }
 
   function refresh() {
+    // The day is not fatal. A fleet that renders without its timeline is far
+    // better than a blank page because one of two reads failed, so this is
+    // deliberately not part of the chain below: the chart keeps the last day
+    // it managed to read.
+    fetchHistory().catch(function () {});
     return fetchState()
       .then(function (state) { lastFetchAt = Date.now(); updateFreshness(); render(state); })
       .catch(function (e) {

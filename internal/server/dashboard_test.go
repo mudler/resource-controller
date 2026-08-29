@@ -230,8 +230,170 @@ func TestDashboardShipsNoTokenLiteral(t *testing.T) {
 // assertion would fail on that prose rather than on an actual call.
 func TestDashboardComputesLabelAgeServerSideNotViaDateParse(t *testing.T) {
 	body := dashboardBody(t)
-	require.NotContains(t, body, "Date.parse(",
-		"label staleness must come from the controller's oldest_label_age_seconds, not a browser-side Date.parse call on updated_at")
+	require.Contains(t, body, "oldest_label_age_seconds",
+		"label staleness must come from the controller, not from a timestamp this page parses")
+
+	// Date.parse survives in exactly two places, and both of them serve the
+	// principle this test defends rather than excusing themselves from it:
+	// anchorClock reads the controller's OWN Date header to correct for a
+	// skewed browser clock, and instant converts an API timestamp that is
+	// then only ever compared against controllerNow. Anywhere else — above
+	// all on a label's updated_at against Date.now() — it is the bug.
+	require.Equal(t, 2, strings.Count(body, "Date.parse("),
+		"Date.parse belongs only in anchorClock and instant")
+	require.Contains(t, dashboardFunction(t, body, "anchorClock"), "Date.parse(")
+	require.Contains(t, dashboardFunction(t, body, "instant"), "Date.parse(")
+}
+
+// The timeline is the first thing on this page to place absolute timestamps
+// on a shared axis, so it is the first thing that could let a skewed reader
+// clock rewrite the picture. It must not.
+func TestDashboardTimelineIsAnchoredOnTheControllerClock(t *testing.T) {
+	body := dashboardBody(t)
+	require.Contains(t, dashboardFunction(t, body, "anchorClock"), `headers.get("Date")`,
+		"the axis is anchored on the controller's own Date header")
+	require.Contains(t, dashboardFunction(t, body, "controllerNow"), "clockSkewMs")
+	require.Contains(t, dashboardFunction(t, body, "fetchState"), "anchorClock(r)")
+	require.Contains(t, dashboardFunction(t, body, "fetchHistory"), "anchorClock(r)")
+
+	// The geometry takes now as an argument. A helper that reached for the
+	// browser clock itself would undo the anchor for every bar it drew.
+	for _, fn := range []string{"barSpan", "busySeconds"} {
+		require.NotContains(t, dashboardFunction(t, body, fn), "Date.now(",
+			"%s must take the controller's now as an argument", fn)
+	}
+}
+
+// The day comes from a route the dashboard has never called before.
+func TestDashboardFetchesTheDay(t *testing.T) {
+	body := dashboardBody(t)
+	require.Contains(t, body, `"/v1/jobs?limit=" + HISTORY_LIMIT`)
+	require.Contains(t, body, "var HISTORY_LIMIT = 200")
+
+	// A failed history read must not blank a fleet that state returned fine.
+	require.Contains(t, dashboardFunction(t, body, "refresh"),
+		"fetchHistory().catch(function () {})")
+}
+
+func TestDashboardBarSpanGeometry(t *testing.T) {
+	const window = `var FROM = Date.parse("2026-08-29T09:00:00Z"),` +
+		` TO = Date.parse("2026-08-29T16:00:00Z"),` +
+		` NOW = Date.parse("2026-08-29T15:20:00Z");`
+
+	tests := []struct {
+		name  string
+		job   string
+		left  float64
+		width float64
+		nilOK bool
+	}{
+		{
+			name:  "a finished job inside the window",
+			job:   `{started_at:"2026-08-29T10:00:00Z", finished_at:"2026-08-29T11:00:00Z"}`,
+			left:  100.0 / 7,
+			width: 100.0 / 7,
+		},
+		{
+			name:  "a run still going takes the axis up to now",
+			job:   `{started_at:"2026-08-29T14:00:00Z", finished_at:null}`,
+			left:  500.0 / 7,
+			width: (80.0 / 60) / 7 * 100,
+		},
+		{
+			name:  "a run that began before the window is clipped, not dropped",
+			job:   `{started_at:"2026-08-29T07:30:00Z", finished_at:"2026-08-29T10:00:00Z"}`,
+			left:  0,
+			width: 100.0 / 7,
+		},
+		{
+			name:  "a four-second job still gets a visible mark",
+			job:   `{started_at:"2026-08-29T12:00:00Z", finished_at:"2026-08-29T12:00:04Z"}`,
+			left:  300.0 / 7,
+			width: 0.35,
+		},
+		{
+			name:  "a job that ended before the window does not draw",
+			job:   `{started_at:"2026-08-29T06:00:00Z", finished_at:"2026-08-29T07:00:00Z"}`,
+			nilOK: true,
+		},
+		{
+			name:  "a job that never started does not draw",
+			job:   `{started_at:null, finished_at:null}`,
+			nilOK: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got *struct {
+				Left  float64 `json:"left"`
+				Width float64 `json:"width"`
+			}
+			runDashboardJSWithPrelude(t, []string{"instant", "barSpan"}, window,
+				"barSpan("+tt.job+", FROM, TO, NOW)", &got)
+			if tt.nilOK {
+				require.Nil(t, got)
+				return
+			}
+			require.NotNil(t, got)
+			require.InDelta(t, tt.left, got.Left, 0.01)
+			require.InDelta(t, tt.width, got.Width, 0.01)
+		})
+	}
+}
+
+func TestDashboardBusySecondsMergesOverlappingLeases(t *testing.T) {
+	const window = `var FROM = Date.parse("2026-08-29T09:00:00Z"),` +
+		` TO = Date.parse("2026-08-29T16:00:00Z"),` +
+		` NOW = Date.parse("2026-08-29T15:00:00Z");`
+
+	tests := []struct {
+		name string
+		jobs string
+		want int
+	}{
+		{
+			name: "two clean leases add up",
+			jobs: `[{device_id:"a", started_at:"2026-08-29T09:00:00Z", finished_at:"2026-08-29T10:00:00Z"},` +
+				`{device_id:"a", started_at:"2026-08-29T11:00:00Z", finished_at:"2026-08-29T12:00:00Z"}]`,
+			want: 7200,
+		},
+		{
+			name: "overlapping leases are merged, never double counted",
+			jobs: `[{device_id:"a", started_at:"2026-08-29T09:00:00Z", finished_at:"2026-08-29T11:00:00Z"},` +
+				`{device_id:"a", started_at:"2026-08-29T10:00:00Z", finished_at:"2026-08-29T12:00:00Z"}]`,
+			want: 10800,
+		},
+		{
+			name: "another device's work does not count",
+			jobs: `[{device_id:"b", started_at:"2026-08-29T09:00:00Z", finished_at:"2026-08-29T12:00:00Z"}]`,
+			want: 0,
+		},
+		{
+			name: "a running lease is busy up to now, not up to the window end",
+			jobs: `[{device_id:"a", started_at:"2026-08-29T14:00:00Z", finished_at:null}]`,
+			want: 3600,
+		},
+		{
+			name: "a lease is clipped to the window at both ends",
+			jobs: `[{device_id:"a", started_at:"2026-08-29T08:00:00Z", finished_at:"2026-08-29T10:00:00Z"}]`,
+			want: 3600,
+		},
+		{
+			name: "a zero-length lease contributes nothing",
+			jobs: `[{device_id:"a", started_at:"2026-08-29T10:00:00Z", finished_at:"2026-08-29T10:00:00Z"}]`,
+			want: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got int
+			runDashboardJSWithPrelude(t, []string{"instant", "busySeconds"}, window,
+				"busySeconds("+tt.jobs+`, "a", FROM, TO, NOW)`, &got)
+			require.Equal(t, tt.want, got)
+		})
+	}
 }
 
 // markupSinks are the DOM APIs that turn a string into markup. The page
