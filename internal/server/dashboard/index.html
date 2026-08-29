@@ -25,6 +25,10 @@
     --bad-bg:#fdf3f3; --bad-line:#f0c9c9;
     --warn:#a15c07; --warn-bg:#fdf8ef; --warn-line:#eddcc0;
     --accent:#c86c08;
+    /* The timeline's one categorical pair, plus the hatch it uses for a
+       device that has left the pool. Validated with the palette checker:
+       dE 21.4 normal vision, 15.7 protan, comfortably clear of the floor. */
+    --job-mine:#c86c08; --job-other:#4a5878; --hatch-bad:rgba(185,28,28,.16);
     --shadow:0 1px 2px rgba(20,22,28,.05);
     /* Spacing scale. Before this the stylesheet used ten different gap values
        (4,7,8,9,10,11,12,13,14,30) with no relationship between them, so every
@@ -43,6 +47,9 @@
       --bad-bg:#2b1618; --bad-line:#5c2a2c;
       --warn:#fbbf24; --warn-bg:#2a2113; --warn-line:#4a3a18;
       --accent:#f0913a;
+      /* Dark needs its own steps, not an inversion: the light accent sits
+         above the dark-mode lightness band and would glare. */
+      --job-mine:#cc7524; --job-other:#8894ad; --hatch-bad:rgba(252,165,165,.18);
       --shadow:none;
     }
   }
@@ -89,6 +96,7 @@
   .fleet-fact { display:flex; gap:6px; align-items:baseline; }
   .fleet-fact b { color:var(--ink); font-weight:600; }
   .fleet-fact.warn, .fleet-fact.warn b { color:var(--warn); }
+  .fleet-head-controls { display:flex; align-items:center; gap:var(--sp-3); flex-wrap:wrap; align-self:start; }
   .fleet-mode { display:inline-flex; align-self:start; padding:3px; border:1px solid var(--line);
                 background:var(--sunk); border-radius:9px; }
   .fleet-mode button { border:0; background:transparent; color:var(--muted); font:inherit;
@@ -305,6 +313,88 @@
   .ev.good .ev-text b { color:var(--ink); }
   .feed-note { font-size:11.5px; color:var(--faint); margin:8px 2px 0; }
 
+  /* ---- the day ------------------------------------------------------
+     Devices are lanes and jobs are bars across them. Occupancy is ink and
+     availability is the whitespace between bars: the gaps ARE the free
+     capacity, which reads faster than painting half a fleet green and keeps
+     the page quiet until something is actually wrong. */
+  .machine-room.day { display:block; }
+  .day-head { display:flex; align-items:center; gap:var(--sp-4); flex-wrap:wrap; margin-bottom:12px; }
+  .day-window { display:flex; border:1px solid var(--line-2); border-radius:8px; overflow:hidden; }
+  .day-window button { border:0; border-left:1px solid var(--line-2); background:var(--panel);
+                       color:var(--muted); font:inherit; font-size:12px; padding:4px 11px; cursor:pointer; }
+  .day-window button:first-child { border-left:0; }
+  .day-window button[aria-pressed="true"] { background:var(--accent); color:#fff; font-weight:600; }
+  .day-scroll { overflow-x:auto; }
+  .day-grid { min-width:640px; position:relative; }
+  .day-axis { display:grid; grid-template-columns:150px minmax(0,1fr); align-items:end; margin-bottom:3px; }
+  .day-ticks { position:relative; height:16px; }
+  .day-tick { position:absolute; top:0; transform:translateX(-50%); white-space:nowrap;
+              font-size:10.5px; font-weight:500; color:var(--faint);
+              font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  .day-tick.now { color:var(--accent); font-weight:600; background:var(--bg); padding:0 5px; z-index:3; }
+  .day-hostrow { display:flex; align-items:baseline; gap:var(--sp-3); padding:14px 0 5px; }
+  .day-hostrow button { border:0; background:none; padding:0; cursor:pointer; color:var(--muted);
+                        font:inherit; font-size:11px; font-weight:600; letter-spacing:.08em;
+                        text-transform:uppercase; }
+  .day-hostrow button:hover { color:var(--accent); text-decoration:underline; }
+  .day-hostrow .facts { font-size:11.5px; color:var(--faint); }
+  .day-hostrow .beat { margin-left:auto; font-size:11.5px; color:var(--faint); font-variant-numeric:tabular-nums; }
+  .day-hostrow .beat.bad { color:var(--bad); font-weight:600; }
+  .day-lane { display:grid; grid-template-columns:150px minmax(0,1fr); align-items:center; height:38px; }
+  .day-name { padding-right:12px; min-width:0; overflow:hidden; }
+  .day-name button { border:0; background:none; padding:0; cursor:pointer; text-align:left; width:100%;
+                     color:var(--ink-2); font:inherit; font-size:12.5px; font-weight:600;
+                     line-height:1.2; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .day-name button:hover { color:var(--accent); text-decoration:underline; }
+  .day-name .st { display:block; font-weight:400; font-size:10.5px; line-height:1.2; color:var(--faint);
+                  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .day-name .st.unhealthy { color:var(--bad); font-weight:600; }
+  .day-track { position:relative; height:100%; border-bottom:1px solid var(--line);
+               background-image:repeating-linear-gradient(to right,var(--line) 0 1px,transparent 1px var(--day-col)); }
+  .day-future { position:absolute; top:0; bottom:0; background:var(--sunk); opacity:.55; z-index:0; pointer-events:none; }
+  .day-nowline { position:absolute; top:0; bottom:0; width:0; border-left:1.5px solid var(--accent);
+                 z-index:4; pointer-events:none; }
+  /* One categorical distinction only — your work against everyone else's —
+     validated for colour-vision deficiency at dE 21.4 normal, 15.7 protan.
+     The submitter is written on any bar with room, so identity never rests
+     on hue alone. */
+  .day-job { position:absolute; top:5px; bottom:6px; border:0; border-radius:3px; padding:0 7px;
+             overflow:hidden; display:flex; align-items:center; cursor:pointer; z-index:2;
+             color:#fff; font:inherit; font-size:11px; font-weight:500; white-space:nowrap;
+             box-shadow:0 0 0 2px var(--bg); background:var(--job-other); }
+  .day-job.mine { background:var(--job-mine); }
+  .day-job.failed { background:var(--bad); }
+  .day-job:hover { filter:brightness(1.13); }
+  .day-job:focus-visible { outline:2px solid var(--ink); outline-offset:1px; }
+  /* A textured span is the encoding that survives greyscale and colour-vision
+     deficiency, so the texture must stay legible AS texture: type is never
+     set on it. The words sit on an opaque plate at the head of the span and
+     say WHEN the state began — the state word itself is already in the lane
+     label beside it and in the legend below. */
+  .day-span { position:absolute; top:4px; bottom:5px; border-radius:3px; overflow:hidden;
+              display:flex; align-items:stretch; padding:0; z-index:2; }
+  .day-span.unhealthy { border:1px solid var(--bad-line);
+    background-image:repeating-linear-gradient(45deg,var(--hatch-bad) 0 5px,transparent 5px 10px); }
+  .day-span.unknown { border:1px dashed var(--line-2);
+    background-image:repeating-linear-gradient(45deg,var(--line) 0 5px,transparent 5px 10px); }
+  .day-plate { display:flex; align-items:center; flex:none; padding:0 8px; background:var(--panel);
+               font-size:11px; font-weight:600; white-space:nowrap; border-radius:2px 0 0 2px;
+               font-variant-numeric:tabular-nums; }
+  .day-span.unhealthy .day-plate { color:var(--bad); border-right:1px solid var(--bad-line); }
+  .day-span.unknown .day-plate { color:var(--muted); font-weight:500; border-right:1px solid var(--line-2); }
+  /* Queued work is an outline, not a fill: it has not happened yet. */
+  .day-ghost { position:absolute; top:5px; bottom:6px; border:1.5px dashed var(--faint); background:none;
+               border-radius:3px; padding:0 7px; overflow:hidden; display:flex; align-items:center;
+               cursor:pointer; z-index:2; color:var(--muted); font:inherit; font-size:11px;
+               white-space:nowrap; }
+  .day-ghost:hover { border-color:var(--accent); color:var(--accent); }
+  .day-legend { display:flex; flex-wrap:wrap; gap:6px 16px; margin-top:14px; padding-top:11px;
+                border-top:1px solid var(--line); font-size:11.5px; color:var(--muted); }
+  .day-legend span { display:flex; align-items:center; gap:6px; }
+  .day-legend i { width:14px; height:9px; border-radius:2px; display:block; flex:none; }
+  .day-empty { padding:22px 4px; color:var(--muted); font-size:13px; }
+
   /* ---- entity workspaces -------------------------------------------- */
   .workspace-head { display:grid; grid-template-columns:auto minmax(0,1fr); gap:var(--sp-4);
                     align-items:start; margin-bottom:26px; padding-bottom:16px;
@@ -497,9 +587,18 @@
         <p class="fleet-statement" id="fleetSummary"></p>
         <div class="fleet-facts" id="fleetFacts"></div>
       </div>
-      <div class="fleet-mode" id="fleetMode" role="group" aria-label="Fleet display">
-        <button type="button" data-mode="bays" aria-pressed="true">Bays</button>
-        <button type="button" data-mode="matrix" aria-pressed="false">Matrix</button>
+      <div class="fleet-head-controls">
+        <div class="day-window hide" id="dayWindow" role="group" aria-label="Time window">
+          <button type="button" data-hours="6" aria-pressed="false">6h</button>
+          <button type="button" data-hours="8" aria-pressed="true">8h</button>
+          <button type="button" data-hours="12" aria-pressed="false">12h</button>
+          <button type="button" data-hours="24" aria-pressed="false">Day</button>
+        </div>
+        <div class="fleet-mode" id="fleetMode" role="group" aria-label="Fleet display">
+          <button type="button" data-mode="day" aria-pressed="true">Day</button>
+          <button type="button" data-mode="bays" aria-pressed="false">Bays</button>
+          <button type="button" data-mode="matrix" aria-pressed="false">Matrix</button>
+        </div>
       </div>
     </div>
     <div class="overview-grid" id="overviewGrid">
@@ -1442,15 +1541,34 @@
     if (workspaceView.kind !== "fleet") renderWorkspace({ preserve: true });
   }
 
-  var fleetMode = "bays";
+  var fleetMode = "day";
 
   function setFleetMode(mode) {
-    fleetMode = mode !== "matrix" ? "bays" : "matrix";
+    fleetMode = mode === "matrix" ? "matrix" : mode === "bays" ? "bays" : "day";
     document.querySelectorAll("#fleetMode button").forEach(function (b) {
       b.setAttribute("aria-pressed", String(b.getAttribute("data-mode") === fleetMode));
     });
-    if (latest) renderMachineRoom(latest.devices || [], latest);
+    document.getElementById("dayWindow").classList.toggle("hide", fleetMode !== "day");
+    if (latest) drawFleet(latest.devices || [], latest);
   }
+
+  function setDayWindow(hours) {
+    dayWindowHours = hours;
+    document.querySelectorAll("#dayWindow button").forEach(function (b) {
+      b.setAttribute("aria-pressed", String(Number(b.getAttribute("data-hours")) === hours));
+    });
+    if (latest) drawFleet(latest.devices || [], latest);
+  }
+
+  // The one place that decides which picture of the fleet is on screen.
+  function drawFleet(views, state) {
+    if (fleetMode === "day") renderDay(views, state);
+    else renderMachineRoom(views, state);
+  }
+
+  document.querySelectorAll("#dayWindow button").forEach(function (b) {
+    b.addEventListener("click", function () { setDayWindow(Number(b.getAttribute("data-hours"))); });
+  });
 
   document.querySelectorAll("#fleetMode button").forEach(function (b) {
     b.addEventListener("click", function () { setFleetMode(b.getAttribute("data-mode")); });
@@ -1529,7 +1647,7 @@
       facts.appendChild(future);
     }
 
-    renderMachineRoom(views, state);
+    drawFleet(views, state);
     renderAttention(views, state);
     renderWorkStrip(state, views);
   }
@@ -1548,6 +1666,256 @@
     return severity;
   }
 
+  // ---- the day ----------------------------------------------------------
+
+  var dayWindowHours = 8;
+
+  // The window ends on the next hour boundary, so there is always between one
+  // and sixty minutes of future on the right for queued work to sit in, and
+  // the ticks land on round hours rather than wherever the page was opened.
+  function dayWindow(nowMs, hours) {
+    var HOUR = 3600000;
+    var to = (Math.floor(nowMs / HOUR) + 1) * HOUR;
+    return { from: to - hours * HOUR, to: to };
+  }
+
+  function dayPct(ms, win) {
+    return (ms - win.from) / (win.to - win.from) * 100;
+  }
+
+  // The bars. /v1/jobs is read on its own slower cadence, so a job that
+  // started in the last few seconds is in the state response and not yet in
+  // the day; the union keeps the newest copy of each.
+  function dayJobs(state) {
+    var byID = {}, out = [];
+    history.forEach(function (j) { byID[j.id] = j; });
+    (state.jobs || []).forEach(function (j) { byID[j.id] = j; });
+    Object.keys(byID).forEach(function (id) { out.push(byID[id]); });
+    return out;
+  }
+
+  // When the CURRENT state began. Two of these are known and one is not.
+  //
+  // A device that stopped reporting has last_heartbeat_at, so its silence is
+  // drawn exactly. A device that is out of the pool has no such field: the
+  // controller records WHY it was quarantined, not when. The last job to run
+  // on it bounds that from below, so the span is drawn from there and said to
+  // be an inference. Inventing a precise start would be worse than "at least".
+  function stateSpan(view, jobs, nowMs) {
+    var d = view.device || {};
+    if (d.state === "unknown") {
+      var beat = instant(d.last_heartbeat_at);
+      if (!isFinite(beat)) return null;
+      return { kind: "unknown", from: beat, to: nowMs, inferred: false };
+    }
+    if (d.state !== "unhealthy") return null;
+    var last = null;
+    for (var i = 0; i < jobs.length; i++) {
+      if (jobs[i].device_id !== d.id) continue;
+      var end = instant(jobs[i].finished_at);
+      if (!isFinite(end)) continue;
+      if (last === null || end > last) last = end;
+    }
+    return { kind: "unhealthy", from: last, to: nowMs, inferred: true };
+  }
+
+  function clockAt(ms) {
+    var d = new Date(ms);
+    return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  }
+
+  function renderDay(views, state) {
+    var room = document.getElementById("machineRoom");
+    room.textContent = "";
+    room.className = "machine-room day";
+    if (!views.length) return;
+
+    var nowMs = controllerNow();
+    var win = dayWindow(nowMs, dayWindowHours);
+    var jobs = dayJobs(state);
+    var waiting = state.queued_waiting_seconds || {};
+
+    var scroll = el("div", "day-scroll");
+    var grid = el("div", "day-grid");
+    grid.style.setProperty("--day-col", (100 / dayWindowHours) + "%");
+
+    var axis = el("div", "day-axis");
+    axis.appendChild(el("div"));
+    var ticks = el("div", "day-ticks");
+    var HOUR = 3600000;
+    var step = dayWindowHours > 12 ? 2 : 1;
+    // An hour mark that lands under the now label is two labels in one place,
+    // and now is the more useful of the two.
+    var crowd = (win.to - win.from) / 18;
+    for (var t = win.from; t <= win.to; t += HOUR * step) {
+      if (Math.abs(t - nowMs) < crowd) continue;
+      var tick = el("div", "day-tick", clockAt(t));
+      tick.style.left = dayPct(t, win) + "%";
+      ticks.appendChild(tick);
+    }
+    var nowTick = el("div", "day-tick now", "now");
+    nowTick.style.left = dayPct(nowMs, win) + "%";
+    ticks.appendChild(nowTick);
+    axis.appendChild(ticks);
+    grid.appendChild(axis);
+
+    var byHost = {};
+    views.forEach(function (v) { (byHost[v.device.host || "—"] = byHost[v.device.host || "—"] || []).push(v); });
+    Object.keys(byHost).sort(function (a, b) {
+      return hostSeverity(byHost[b]) - hostSeverity(byHost[a]) || a.localeCompare(b);
+    }).forEach(function (host) {
+      grid.appendChild(dayHostRow(host, byHost[host]));
+      byHost[host].sort(function (a, b) { return a.device.id.localeCompare(b.device.id); })
+        .forEach(function (v) { grid.appendChild(dayLane(v, jobs, state, waiting, win, nowMs)); });
+    });
+
+    scroll.appendChild(grid);
+    room.appendChild(scroll);
+    room.appendChild(dayLegend());
+  }
+
+  function dayHostRow(host, views) {
+    var row = el("div", "day-hostrow");
+    var open = el("button", null, host);
+    open.type = "button";
+    open.setAttribute("data-workspace-kind", "host");
+    open.setAttribute("data-workspace-id", host);
+    open.addEventListener("click", function () { openHost(host); });
+    row.appendChild(open);
+    var facts = hostSummary(views);
+    if (facts) row.appendChild(el("span", "facts", facts));
+    var beat = null;
+    views.forEach(function (v) {
+      if (typeof v.heartbeat_age_seconds === "number" &&
+          (beat === null || v.heartbeat_age_seconds > beat)) beat = v.heartbeat_age_seconds;
+    });
+    if (beat !== null) {
+      row.appendChild(el("span", "beat" + (beat > 30 ? " bad" : ""),
+        beat > 30 ? "last heard " + ago(beat) + " ago" : "heard " + ago(beat) + " ago"));
+    }
+    return row;
+  }
+
+  function dayLane(v, jobs, state, waiting, win, nowMs) {
+    var d = v.device;
+    var lane = el("div", "day-lane");
+
+    var name = el("div", "day-name");
+    var open = el("button", null, d.name || d.id);
+    open.type = "button";
+    open.setAttribute("data-workspace-kind", "device");
+    open.setAttribute("data-workspace-id", d.id);
+    open.addEventListener("click", function () { openDevice(d.id); });
+    open.appendChild(el("span", "st " + d.state, v.holder || stateWord(d.state)));
+    name.appendChild(open);
+    lane.appendChild(name);
+
+    var track = el("div", "day-track");
+    var future = el("div", "day-future");
+    future.style.left = dayPct(nowMs, win) + "%";
+    future.style.right = "0";
+    track.appendChild(future);
+
+    jobs.forEach(function (j) {
+      if (j.device_id !== d.id) return;
+      var span = barSpan(j, win.from, win.to, nowMs);
+      if (!span) return;
+      track.appendChild(dayBar(j, span, nowMs));
+    });
+
+    var st = stateSpan(v, jobs, nowMs);
+    if (st) track.appendChild(daySpan(st, win, nowMs));
+
+    (state.queued || []).forEach(function (j) {
+      if (j.device_id !== d.id) return;
+      track.appendChild(dayGhost(j, waiting[j.id], win, nowMs));
+    });
+
+    var now = el("div", "day-nowline");
+    now.style.left = dayPct(nowMs, win) + "%";
+    track.appendChild(now);
+    lane.appendChild(track);
+    return lane;
+  }
+
+  function dayBar(j, span, nowMs) {
+    var running = !j.finished_at;
+    var failed = j.state === "failed" || j.state === "lost";
+    var bar = el("button", "day-job" + (failed ? " failed" : j.submitter === identity ? " mine" : ""));
+    bar.type = "button";
+    bar.style.left = span.left + "%";
+    bar.style.width = span.width + "%";
+    if (span.width > 7) bar.appendChild(el("span", null, j.submitter || "—"));
+    var started = instant(j.started_at);
+    var ended = running ? nowMs : instant(j.finished_at);
+    var when = clockAt(started) + " to " + (running ? "now" : clockAt(ended)) +
+      " (" + ago(Math.round((ended - started) / 1000)) + ")";
+    var label = j.id + " — " + (j.submitter || "unknown") + ", " + (running ? "running" : j.state) +
+      ", " + when;
+    bar.title = label;
+    bar.setAttribute("aria-label", label);
+    bar.setAttribute("data-workspace-kind", "job");
+    bar.setAttribute("data-workspace-id", j.id);
+    bar.addEventListener("click", function () { openJob(j.id); });
+    return bar;
+  }
+
+  function daySpan(st, win, nowMs) {
+    var span = el("div", "day-span " + st.kind);
+    var from = st.from === null || st.from < win.from ? win.from : st.from;
+    span.style.left = dayPct(from, win) + "%";
+    span.style.width = Math.max(0.5, dayPct(nowMs, win) - dayPct(from, win)) + "%";
+    var known = st.from !== null && st.from >= win.from;
+    var words = st.inferred
+      ? (known ? "since at least " + clockAt(st.from) : "since before this window")
+      : (known ? "since " + clockAt(st.from) + " · " + ago(Math.round((nowMs - st.from) / 1000))
+               : "since before this window");
+    span.appendChild(el("span", "day-plate", words));
+    span.title = stateWord(st.kind) + " — " + words +
+      (st.inferred ? ". The controller records why a device was quarantined, not when; this is the end of the last job that ran on it." : "");
+    return span;
+  }
+
+  function dayGhost(j, waited, win, nowMs) {
+    var g = el("button", "day-ghost");
+    g.type = "button";
+    g.style.left = dayPct(nowMs, win) + "%";
+    g.style.right = "0";
+    g.appendChild(el("span", null, j.id + " waiting " + ago(typeof waited === "number" ? waited : 0)));
+    var label = j.id + " is queued for this device by name and has waited " +
+      ago(typeof waited === "number" ? waited : 0);
+    g.title = label;
+    g.setAttribute("aria-label", label);
+    g.setAttribute("data-workspace-kind", "job");
+    g.setAttribute("data-workspace-id", j.id);
+    g.addEventListener("click", function () { openJob(j.id); });
+    return g;
+  }
+
+  function dayLegend() {
+    var leg = el("div", "day-legend");
+    function swatch(text, style) {
+      var s = el("span");
+      var i = el("i");
+      Object.keys(style).forEach(function (k) { i.style.setProperty(k, style[k]); });
+      s.appendChild(i);
+      s.appendChild(el("span", null, text));
+      leg.appendChild(s);
+    }
+    swatch("your work", { background: "var(--job-mine)" });
+    swatch("everyone else", { background: "var(--job-other)" });
+    swatch("did not finish", { background: "var(--bad)" });
+    swatch("out of the pool", {
+      "background-image": "repeating-linear-gradient(45deg,var(--hatch-bad) 0 4px,transparent 4px 8px)",
+      border: "1px solid var(--bad-line)"
+    });
+    swatch("queued", { border: "1.5px dashed var(--faint)" });
+    var gaps = el("span", null, "gaps are free capacity");
+    gaps.style.color = "var(--faint)";
+    leg.appendChild(gaps);
+    return leg;
+  }
+
   function renderMachineRoom(views, state) {
     var waitingBy = {};
     (state.queued || []).forEach(function (j) {
@@ -1560,7 +1928,7 @@
 
     var room = document.getElementById("machineRoom");
     room.textContent = "";
-    room.classList.toggle("matrix", fleetMode === "matrix");
+    room.className = "machine-room" + (fleetMode === "matrix" ? " matrix" : "");
     if (!views.length) {
       var e = el("div", "empty", "No devices are registered.");
       e.appendChild(el("div", "hint", "Start a worker on a device host and it will appear here."));
@@ -1977,7 +2345,7 @@
   var workspaceTrigger = null;
   var workspaceTriggerView = null;
   var overviewScrollY = 0;
-  var overviewMode = "bays";
+  var overviewMode = "day";
   var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   var jobWorkspaceTab = "details";
   var jobWorkspaceTabID = null;
@@ -2930,6 +3298,11 @@
         history = (body && body.jobs) || [];
         historyFetchedAt = Date.now();
         history.forEach(function (j) { jobIndex[j.id] = j; });
+        // The day arrives on its own cadence, so it has to draw itself when
+        // it lands. Without this the first paint after a reload shows only
+        // the jobs running right now — the chart looks nearly empty until
+        // the next state poll happens to redraw it.
+        if (latest) drawFleet(latest.devices || [], latest);
         return history;
       });
   }

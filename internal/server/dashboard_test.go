@@ -6,8 +6,10 @@ import (
 	"net/http"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -504,11 +506,183 @@ func TestDashboardMachineRoom(t *testing.T) {
 	require.Contains(t, body, `waitingBy[v.device.id]`)
 }
 
+// The day is the default picture of the fleet, and it routes into the same
+// workspaces every other view does.
+func TestDashboardDayIsTheDefaultFleetView(t *testing.T) {
+	body := dashboardBody(t)
+	require.Contains(t, body, `var fleetMode = "day"`)
+	require.Contains(t, body, `<button type="button" data-mode="day" aria-pressed="true">Day</button>`)
+	require.Contains(t, body, `id="dayWindow"`)
+	for _, fn := range []string{"renderDay", "dayLane", "dayBar", "daySpan", "dayGhost", "drawFleet"} {
+		require.Contains(t, body, "function "+fn+"(")
+	}
+	// Bars, lane names and host names are all real buttons carrying the same
+	// routing attributes the bays and matrix rows carry, so a keyboard reaches
+	// every entity the chart draws.
+	for _, kind := range []string{`"host"`, `"device"`, `"job"`} {
+		require.Contains(t, body, `setAttribute("data-workspace-kind", `+kind+`)`)
+	}
+	require.Contains(t, dashboardFunction(t, body, "dayBar"), "openJob(j.id)")
+	require.Contains(t, dashboardFunction(t, body, "dayBar"), `setAttribute("aria-label", label)`)
+}
+
+// A textured span is what keeps "out of the pool" legible in greyscale and for
+// a colourblind reader, so the texture has to stay readable AS texture. Type
+// on 45-degree stripes is unreadable, and the state word is already in the
+// lane label beside it. The words go on an opaque plate instead.
+func TestDashboardTexturedSpansCarryNoTypeOnTheTexture(t *testing.T) {
+	body := dashboardBody(t)
+	span := dashboardFunction(t, body, "daySpan")
+	require.Contains(t, span, `el("span", "day-plate", words)`,
+		"a textured span labels itself through an opaque plate")
+	require.NotContains(t, span, `el("div", "day-span " + st.kind, `,
+		"the textured element itself must never be given a text node")
+	require.Contains(t, body, ".day-plate { display:flex;",
+		"the plate needs an opaque background of its own")
+}
+
+// The controller records why a device was quarantined, not when. The chart may
+// bound that from below with the last job to run on the card, but it must say
+// that is what it is doing.
+func TestDashboardDoesNotInventAQuarantineStart(t *testing.T) {
+	body := dashboardBody(t)
+	span := dashboardFunction(t, body, "stateSpan")
+	require.Contains(t, span, "inferred: true")
+	require.Contains(t, span, "inferred: false")
+	require.Contains(t, dashboardFunction(t, body, "daySpan"), "since at least ")
+}
+
+func TestDashboardDayWindowEndsOnTheHourAhead(t *testing.T) {
+	tests := []struct {
+		name  string
+		now   string
+		hours int
+		from  string
+		to    string
+	}{
+		{
+			name: "mid-hour", now: "2026-08-29T15:20:00Z", hours: 8,
+			from: "2026-08-29T08:00:00.000Z", to: "2026-08-29T16:00:00.000Z",
+		},
+		{
+			// Exactly on the hour must still leave room on the right for
+			// queued work, not collapse the future to nothing.
+			name: "on the hour", now: "2026-08-29T15:00:00Z", hours: 6,
+			from: "2026-08-29T10:00:00.000Z", to: "2026-08-29T16:00:00.000Z",
+		},
+		{
+			name: "a whole day", now: "2026-08-29T15:20:00Z", hours: 24,
+			from: "2026-08-28T16:00:00.000Z", to: "2026-08-29T16:00:00.000Z",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got struct {
+				From string `json:"from"`
+				To   string `json:"to"`
+			}
+			runDashboardJSWithPrelude(t, []string{"dayWindow"},
+				`var NOW = Date.parse("`+tt.now+`");`,
+				`(function () { var w = dayWindow(NOW, `+strconv.Itoa(tt.hours)+`);`+
+					` return { from: new Date(w.from).toISOString(), to: new Date(w.to).toISOString() }; })()`,
+				&got)
+			require.Equal(t, tt.from, got.From)
+			require.Equal(t, tt.to, got.To)
+		})
+	}
+}
+
+func TestDashboardStateSpanStart(t *testing.T) {
+	const prelude = `var NOW = Date.parse("2026-08-29T15:20:00Z");`
+
+	tests := []struct {
+		name     string
+		view     string
+		jobs     string
+		nilOK    bool
+		from     string
+		inferred bool
+	}{
+		{
+			name: "silence is drawn exactly, from the last heartbeat",
+			view: `{device:{id:"a", state:"unknown", last_heartbeat_at:"2026-08-29T15:16:00Z"}}`,
+			jobs: `[]`, from: "2026-08-29T15:16:00.000Z", inferred: false,
+		},
+		{
+			name: "quarantine is bounded by the last job and marked an inference",
+			view: `{device:{id:"a", state:"unhealthy"}}`,
+			jobs: `[{device_id:"a", started_at:"2026-08-29T11:00:00Z", finished_at:"2026-08-29T12:12:00Z"},` +
+				`{device_id:"a", started_at:"2026-08-29T09:00:00Z", finished_at:"2026-08-29T10:00:00Z"}]`,
+			from: "2026-08-29T12:12:00.000Z", inferred: true,
+		},
+		{
+			name: "a quarantined device with no history at all still draws",
+			view: `{device:{id:"a", state:"unhealthy"}}`,
+			jobs: `[]`, from: "", inferred: true,
+		},
+		{
+			name:  "a healthy device has no span",
+			view:  `{device:{id:"a", state:"ready"}}`,
+			jobs:  `[]`,
+			nilOK: true,
+		},
+		{
+			name:  "a silent device with no heartbeat on record has no span",
+			view:  `{device:{id:"a", state:"unknown"}}`,
+			jobs:  `[]`,
+			nilOK: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got *struct {
+				From     *float64 `json:"from"`
+				Inferred bool     `json:"inferred"`
+			}
+			runDashboardJSWithPrelude(t, []string{"instant", "stateSpan"}, prelude,
+				"stateSpan("+tt.view+", "+tt.jobs+", NOW)", &got)
+			if tt.nilOK {
+				require.Nil(t, got)
+				return
+			}
+			require.NotNil(t, got)
+			require.Equal(t, tt.inferred, got.Inferred)
+			if tt.from == "" {
+				require.Nil(t, got.From, "an unknown start stays null rather than being guessed")
+				return
+			}
+			require.NotNil(t, got.From)
+			require.Equal(t, tt.from, time.UnixMilli(int64(*got.From)).UTC().Format("2006-01-02T15:04:05.000Z"))
+		})
+	}
+}
+
+// The day arrives on its own cadence, so it has to draw itself when it lands.
+// Without this the first paint after a reload shows only what is running right
+// now, and the chart looks nearly empty until the next state poll redraws it.
+func TestDashboardDrawsTheDayWhenItArrives(t *testing.T) {
+	body := dashboardBody(t)
+	require.Contains(t, dashboardFunction(t, body, "fetchHistory"),
+		"drawFleet(latest.devices || [], latest)")
+}
+
+// Restoring the overview from a workspace must restore the day, not silently
+// drop the reader back into a mode they never chose.
+func TestDashboardRestoresTheDayAsTheOverviewMode(t *testing.T) {
+	body := dashboardBody(t)
+	require.Contains(t, body, `var overviewMode = "day"`)
+	require.NotContains(t, body, `var overviewMode = "bays"`)
+}
+
 func TestDashboardMatrixMode(t *testing.T) {
 	body := dashboardBody(t)
 	require.Contains(t, body, "function setFleetMode(mode)")
-	require.Contains(t, body, `mode !== "matrix" ? "bays" : "matrix"`)
-	require.Contains(t, body, `room.classList.toggle("matrix", fleetMode === "matrix")`)
+	// Three modes now, with the day the default. Matrix is still the answer
+	// for a fleet too large for legible lanes, so it keeps its own class.
+	require.Contains(t, body, `mode === "matrix" ? "matrix" : mode === "bays" ? "bays" : "day"`)
+	require.Contains(t, body, `room.className = "machine-room" + (fleetMode === "matrix" ? " matrix" : "")`)
 	require.Contains(t, body, `views.slice()`)
 	require.Contains(t, body, `el("table", "matrix-table")`)
 	require.Contains(t, body, `data-device-id`)
