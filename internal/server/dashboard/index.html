@@ -313,6 +313,15 @@
   .ev.good .ev-text b { color:var(--ink); }
   .feed-note { font-size:11.5px; color:var(--faint); margin:8px 2px 0; }
 
+  /* ---- utilization cells ---------------------------------------------- */
+  .cells { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:var(--sp-4); }
+  .cell { border:1px solid var(--line); border-radius:10px; background:var(--panel); padding:12px 14px; }
+  .cell .n { font-size:25px; font-weight:600; letter-spacing:-.025em; font-variant-numeric:tabular-nums; }
+  .cell .n.bad { color:var(--bad); } .cell .n.ok { color:var(--ready); }
+  .cell .l { font-size:11.5px; color:var(--muted); margin-top:5px; }
+  .ubar { height:6px; border-radius:100px; background:var(--sunk); margin-top:9px; overflow:hidden; }
+  .ubar i { display:block; height:100%; background:var(--job-other); border-radius:100px; }
+
   /* ---- destinations -------------------------------------------------- */
   .places { display:flex; gap:2px; }
   .places button { border:0; background:none; font:inherit; font-size:13.5px; color:var(--muted);
@@ -1849,7 +1858,14 @@
     room.textContent = "";
     room.className = "machine-room day";
     if (!views.length) return;
+    room.appendChild(dayChart(views, state, { hostRows: true }));
+    room.appendChild(dayLegend());
+  }
 
+  // The chart itself, so a host or a single card can be drawn by the same
+  // renderer the fleet uses rather than by a second one that drifts from it.
+  function dayChart(views, state, opts) {
+    opts = opts || {};
     var nowMs = controllerNow();
     var win = dayWindow(nowMs, dayWindowHours);
     var jobs = dayJobs(state);
@@ -1879,19 +1895,23 @@
     axis.appendChild(ticks);
     grid.appendChild(axis);
 
-    var byHost = {};
-    views.forEach(function (v) { (byHost[v.device.host || "—"] = byHost[v.device.host || "—"] || []).push(v); });
-    Object.keys(byHost).sort(function (a, b) {
-      return hostSeverity(byHost[b]) - hostSeverity(byHost[a]) || a.localeCompare(b);
-    }).forEach(function (host) {
-      grid.appendChild(dayHostRow(host, byHost[host]));
-      byHost[host].sort(function (a, b) { return a.device.id.localeCompare(b.device.id); })
+    if (opts.hostRows) {
+      var byHost = {};
+      views.forEach(function (v) { (byHost[v.device.host || "—"] = byHost[v.device.host || "—"] || []).push(v); });
+      Object.keys(byHost).sort(function (a, b) {
+        return hostSeverity(byHost[b]) - hostSeverity(byHost[a]) || a.localeCompare(b);
+      }).forEach(function (host) {
+        grid.appendChild(dayHostRow(host, byHost[host]));
+        byHost[host].sort(function (a, b) { return a.device.id.localeCompare(b.device.id); })
+          .forEach(function (v) { grid.appendChild(dayLane(v, jobs, state, waiting, win, nowMs)); });
+      });
+    } else {
+      views.slice().sort(function (a, b) { return a.device.id.localeCompare(b.device.id); })
         .forEach(function (v) { grid.appendChild(dayLane(v, jobs, state, waiting, win, nowMs)); });
-    });
+    }
 
     scroll.appendChild(grid);
-    room.appendChild(scroll);
-    room.appendChild(dayLegend());
+    return scroll;
   }
 
   function dayHostRow(host, views) {
@@ -2645,6 +2665,10 @@
     // resets scrollTop on every scroller inside it — which is precisely how
     // follow mode has been dying every five seconds since it was written. The
     // facts around it are rebuilt; the stream is left where it is.
+    // Every workspace renders into workspaceMain, never into workspaceBody:
+    // the body holds the persistent output pane as a sibling, so anything
+    // appended to the body directly is never cleared and duplicates itself on
+    // every refresh.
     workspaceLife.textContent = "";
     workspaceMain.textContent = "";
     workspaceBody.classList.toggle("job-layout", workspaceView.kind === "job");
@@ -2670,7 +2694,7 @@
     var views = Object.keys(deviceIndex).map(function (id) { return deviceIndex[id]; })
       .filter(function (v) { return (v.device.host || "—") === host; });
     if (!views.length) {
-      workspaceBody.appendChild(el("p", "under", "This host is no longer in the fleet."));
+      workspaceMain.appendChild(el("p", "under", "This host is no longer in the fleet."));
       return;
     }
     var unhealthy = views.filter(function (v) { return v.device.state === "unhealthy"; });
@@ -2681,8 +2705,26 @@
       diagnosis.appendChild(el("p", null, unhealthy.length
         ? unhealthy.length + (unhealthy.length === 1 ? " device is" : " devices are") + " out of the pool."
         : "Nothing has been heard from at least one device for more than 30 seconds."));
-      workspaceBody.appendChild(diagnosis);
+      // Two cards do not fail in the same second. When every lane on a host
+      // goes quiet together, the host stopped talking — say so, because the
+      // action is a worker restart rather than anything to do with the
+      // hardware. This is an inference from the state the controller has, not
+      // a heartbeat history it keeps, and it is worded as one.
+      if (!unhealthy.length && quiet.length === views.length && views.length > 1) {
+        diagnosis.appendChild(el("p", null,
+          "All " + views.length + " devices on this host went quiet together, so this is " +
+          "almost certainly the worker rather than the hardware. Nothing will be scheduled " +
+          "here until it checks in."));
+      }
+      workspaceMain.appendChild(diagnosis);
     }
+    // The host's day, and how much of it these cards actually worked. Both
+    // come out of the job history already in hand.
+    var win = dayWindow(controllerNow(), dayWindowHours);
+    var jobs = dayJobs(latest || {});
+    workspaceMain.appendChild(utilisationBlock(views, jobs, win, controllerNow()));
+    workspaceMain.appendChild(workspaceTimeline(views, "This host today"));
+
     var facts = el("dl", "facts");
     facts.appendChild(el("dt", null, "devices"));
     facts.appendChild(el("dd", null, String(views.length)));
@@ -2691,7 +2733,7 @@
     var factsBlock = el("div", "block");
     factsBlock.appendChild(el("h3", "sec", "Host facts"));
     factsBlock.appendChild(facts);
-    workspaceBody.appendChild(factsBlock);
+    workspaceMain.appendChild(factsBlock);
 
     var labels = el("dl", "facts");
     (views[0].device.labels || []).forEach(function (label) {
@@ -2705,17 +2747,17 @@
     var labelBlock = el("div", "block");
     labelBlock.appendChild(el("h3", "sec", "Labels and provenance"));
     labelBlock.appendChild(labels);
-    workspaceBody.appendChild(labelBlock);
+    workspaceMain.appendChild(labelBlock);
 
     var devices = el("div", "host-devices");
     devices.appendChild(el("h3", "sec", "Related devices"));
     var rows = el("div", "rows");
     views.forEach(function (v) { rows.appendChild(deviceRow(v, [])); });
     devices.appendChild(rows);
-    workspaceBody.appendChild(devices);
+    workspaceMain.appendChild(devices);
 
     var extras = el("div", "host-extras");
-    workspaceBody.appendChild(extras);
+    workspaceMain.appendChild(extras);
     paintHostWorkspaceExtras(extras, views);
     fetchHostWorkspaceData(host, views).then(function () {
       if (workspaceView.kind === "host" && workspaceView.id === host) {
@@ -2783,12 +2825,12 @@
     workspaceHeading.textContent = id;
     var v = deviceIndex[id];
     if (!v) {
-      workspaceBody.appendChild(el("p", "under", "This device is no longer in the fleet."));
+      workspaceMain.appendChild(el("p", "under", "This device is no longer in the fleet."));
       return;
     }
     var d = v.device;
 
-    workspaceBody.appendChild(el("p", "big " + d.state, stateWord(d.state)));
+    workspaceMain.appendChild(el("p", "big " + d.state, stateWord(d.state)));
     var under = el("p", "under");
     if (v.holder) {
       under.appendChild(txt((v.kind === "hold" ? "held by " : "running work for ") + v.holder +
@@ -2802,7 +2844,7 @@
       under.appendChild(txt(" · "));
       under.appendChild(button("linkish", d.host, function () { openHost(d.host); }));
     }
-    workspaceBody.appendChild(under);
+    workspaceMain.appendChild(under);
 
     // Why it is out of the pool, in full: headline, the host's own words
     // verbatim, and what to do next. This is the reason this panel exists.
@@ -2813,13 +2855,13 @@
       if (reason.body) note.appendChild(el("p", null, reason.body));
       if (reason.quote) note.appendChild(el("span", "quote", reason.quote));
       if (reason.advice) note.appendChild(el("p", null, reason.advice));
-      workspaceBody.appendChild(note);
+      workspaceMain.appendChild(note);
     } else if (v.heartbeat_age_seconds > 30 && v.holder) {
       var stale = el("div", "note caution");
       stale.appendChild(el("h3", null, "Nobody is confirming this work."));
       stale.appendChild(el("p", null, "The host has not been heard from for " +
         ago(v.heartbeat_age_seconds) + ", so what is shown here may already be over."));
-      workspaceBody.appendChild(stale);
+      workspaceMain.appendChild(stale);
     }
 
     // Current work, one click away.
@@ -2834,7 +2876,7 @@
       jobBtn.appendChild(el("span", "jcmd mono",
         clip(v.kind === "hold" ? (v.reason || "hold") : (v.command || []).join(" "), 200)));
       block.appendChild(jobBtn);
-      workspaceBody.appendChild(block);
+      workspaceMain.appendChild(block);
     }
 
     // Actions, gathered rather than scattered.
@@ -2852,7 +2894,7 @@
     }
     if (actionRow.childNodes.length) {
       actions.appendChild(actionRow);
-      workspaceBody.appendChild(actions);
+      workspaceMain.appendChild(actions);
     }
 
     // The hardware portrait: which machine this actually is, drawn rather
@@ -2863,7 +2905,13 @@
     // things: diagnosis wants the answer first, and this is not the answer —
     // it is what the answer is about. So the alarm keeps the top of the
     // panel, and the portrait heads the facts.
-    workspaceBody.appendChild(portrait(v));
+    workspaceMain.appendChild(portrait(v));
+
+    // This card's own day, on the same renderer the fleet chart uses.
+    var devWin = dayWindow(controllerNow(), dayWindowHours);
+    var devJobs = dayJobs(latest || {});
+    workspaceMain.appendChild(utilisationBlock([v], devJobs, devWin, controllerNow()));
+    workspaceMain.appendChild(workspaceTimeline([v], "This card today"));
 
     // Facts, with provenance. describe is painted from cache first so
     // reopening a device never flashes empty, and refetched only when what
@@ -2871,7 +2919,7 @@
     // five-second refresh, and a per-device store query on each of those
     // would be a poll nobody asked for.
     var factsBox = el("div", "block");
-    workspaceBody.appendChild(factsBox);
+    workspaceMain.appendChild(factsBox);
     var cached = describes[id];
     paintDescribe(factsBox, v, cached);
     if (cached && Date.now() - cached.fetchedAt < 15000) return;
@@ -3037,6 +3085,69 @@
           meta.appendChild(el("p", "under", "This job could not be read: " + e.message));
         }
       });
+  }
+
+  // ---- utilization ------------------------------------------------------
+  //
+  // Derived from the job records the bars are drawn from, so it needs no
+  // endpoint, no stored metric and no time series. It is exact for the window
+  // it states, which is why it always states one.
+  function utilisation(views, jobs, win, nowMs) {
+    var span = Math.max(1, (Math.min(win.to, nowMs) - win.from) / 1000);
+    var busy = 0, jobCount = 0, unfinished = 0;
+    views.forEach(function (v) {
+      busy += busySeconds(jobs, v.device.id, win.from, Math.min(win.to, nowMs), nowMs);
+    });
+    jobs.forEach(function (j) {
+      var mine = views.some(function (v) { return v.device.id === j.device_id; });
+      if (!mine) return;
+      jobCount++;
+      if (j.state === "failed" || j.state === "lost") unfinished++;
+    });
+    return {
+      percent: views.length ? Math.round(busy / (span * views.length) * 100) : 0,
+      busySeconds: busy,
+      windowSeconds: Math.round(span),
+      jobs: jobCount,
+      unfinished: unfinished
+    };
+  }
+
+  function utilisationBlock(views, jobs, win, nowMs) {
+    var u = utilisation(views, jobs, win, nowMs);
+    var cells = el("div", "cells");
+    function cell(value, label, tone) {
+      var c = el("div", "cell");
+      c.appendChild(el("div", "n" + (tone ? " " + tone : ""), value));
+      c.appendChild(el("div", "l", label));
+      return c;
+    }
+    var busyCell = cell(u.percent + "%",
+      (views.length === 1 ? "of the last " : "of the last ") + ago(u.windowSeconds) +
+      (views.length === 1 ? " this card was held" : " these cards were held"));
+    var bar = el("div", "ubar");
+    var fill = el("i");
+    fill.style.width = Math.min(100, u.percent) + "%";
+    bar.appendChild(fill);
+    busyCell.appendChild(bar);
+    cells.appendChild(busyCell);
+    cells.appendChild(cell(String(u.jobs), u.jobs === 1 ? "job in the window" : "jobs in the window"));
+    cells.appendChild(cell(String(u.unfinished), "did not finish cleanly",
+      u.unfinished ? "bad" : "ok"));
+    var block = el("div", "block");
+    block.appendChild(el("h3", "sec", "This window"));
+    block.appendChild(cells);
+    return block;
+  }
+
+  // One lane, or a host's lanes, drawn by the fleet chart's own renderer so
+  // the two cannot drift apart.
+  function workspaceTimeline(views, title) {
+    var block = el("div", "block");
+    block.appendChild(el("h3", "sec", title));
+    block.appendChild(dayChart(views, latest || {}, { hostRows: false }));
+    block.appendChild(dayLegend());
+    return block;
   }
 
   // ---- running now ------------------------------------------------------

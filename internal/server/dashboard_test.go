@@ -843,6 +843,101 @@ func TestDashboardFleetControlsAreWired(t *testing.T) {
 	require.Contains(t, dashboardFunction(t, body, "renderPlaces"), `querySelectorAll("#places button")`)
 }
 
+// workspaceBody holds the persistent output pane as a sibling, so it is never
+// cleared wholesale. Anything appended to it directly therefore survives every
+// refresh and stacks a second copy of itself on top — the host workspace grew
+// from 8 children to 18 in eleven seconds before this was caught.
+func TestDashboardWorkspacesRenderIntoMain(t *testing.T) {
+	body := dashboardBody(t)
+	require.NotContains(t, body, "workspaceBody.appendChild",
+		"a workspace renders into workspaceMain, which is what a refresh clears")
+	for _, fn := range []string{"renderHostWorkspace", "renderDeviceWorkspace", "renderJobWorkspace"} {
+		require.Contains(t, dashboardFunction(t, body, fn), "workspaceMain",
+			"%s must render into the cleared container", fn)
+	}
+}
+
+// Utilization is derived from the job records the bars are drawn from, so it
+// needs no endpoint and no stored metric. It has to be exact.
+func TestDashboardUtilisationIsDerivedFromTheDay(t *testing.T) {
+	const win = `var WIN = {from: Date.parse("2026-08-29T08:00:00Z"), to: Date.parse("2026-08-29T16:00:00Z")},` +
+		` NOW = Date.parse("2026-08-29T16:00:00Z");`
+
+	tests := []struct {
+		name       string
+		views      string
+		jobs       string
+		percent    int
+		count      int
+		unfinished int
+	}{
+		{
+			name:  "one card held for the whole window is fully utilised",
+			views: `[{device:{id:"a"}}]`,
+			jobs: `[{device_id:"a", state:"succeeded", started_at:"2026-08-29T08:00:00Z",` +
+				` finished_at:"2026-08-29T16:00:00Z"}]`,
+			percent: 100, count: 1,
+		},
+		{
+			name:  "two cards, one held half the window",
+			views: `[{device:{id:"a"}},{device:{id:"b"}}]`,
+			jobs: `[{device_id:"a", state:"succeeded", started_at:"2026-08-29T08:00:00Z",` +
+				` finished_at:"2026-08-29T12:00:00Z"}]`,
+			percent: 25, count: 1,
+		},
+		{
+			name:  "work on a card that is not ours does not count",
+			views: `[{device:{id:"a"}}]`,
+			jobs: `[{device_id:"z", state:"succeeded", started_at:"2026-08-29T08:00:00Z",` +
+				` finished_at:"2026-08-29T16:00:00Z"}]`,
+			percent: 0, count: 0,
+		},
+		{
+			name:  "failed and lost both count as not finishing cleanly",
+			views: `[{device:{id:"a"}}]`,
+			jobs: `[{device_id:"a", state:"failed", started_at:"2026-08-29T09:00:00Z", finished_at:"2026-08-29T09:30:00Z"},` +
+				`{device_id:"a", state:"lost", started_at:"2026-08-29T10:00:00Z", finished_at:"2026-08-29T10:30:00Z"},` +
+				`{device_id:"a", state:"succeeded", started_at:"2026-08-29T11:00:00Z", finished_at:"2026-08-29T11:30:00Z"}]`,
+			percent: 19, count: 3, unfinished: 2,
+		},
+		{
+			name:    "a host with no devices does not divide by zero",
+			views:   `[]`,
+			jobs:    `[]`,
+			percent: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got struct {
+				Percent    int `json:"percent"`
+				Jobs       int `json:"jobs"`
+				Unfinished int `json:"unfinished"`
+			}
+			runDashboardJSWithPrelude(t, []string{"instant", "busySeconds", "utilisation"}, win,
+				"utilisation("+tt.views+", "+tt.jobs+", WIN, NOW)", &got)
+			require.Equal(t, tt.percent, got.Percent)
+			require.Equal(t, tt.count, got.Jobs)
+			require.Equal(t, tt.unfinished, got.Unfinished)
+		})
+	}
+}
+
+// One chart renderer, used by the fleet, a host and a single card, so the
+// three cannot drift apart.
+func TestDashboardWorkspacesReuseTheFleetChart(t *testing.T) {
+	body := dashboardBody(t)
+	require.Contains(t, body, "function dayChart(views, state, opts)")
+	require.Contains(t, dashboardFunction(t, body, "renderDay"), "dayChart(views, state, { hostRows: true })")
+	require.Contains(t, dashboardFunction(t, body, "workspaceTimeline"), "hostRows: false")
+	for _, fn := range []string{"renderHostWorkspace", "renderDeviceWorkspace"} {
+		require.Contains(t, dashboardFunction(t, body, fn), "workspaceTimeline(",
+			"%s draws its lanes with the fleet renderer", fn)
+		require.Contains(t, dashboardFunction(t, body, fn), "utilisationBlock(")
+	}
+}
+
 func TestDashboardRunningIsADestination(t *testing.T) {
 	body := dashboardBody(t)
 	require.Contains(t, body, `<button type="button" data-place="running">Running now`)
