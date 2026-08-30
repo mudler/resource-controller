@@ -1020,6 +1020,24 @@ func TestDashboardLogReconnectIsOfferedNotAutomatic(t *testing.T) {
 		"a broken stream must not silently retry behind the reader")
 }
 
+// A run that worked for four hours and then died was not failing for four
+// hours. The bar keeps the colour of the work and marks the failure at the
+// end, where it happened.
+func TestDashboardFailureIsMarkedAtItsEndNotAcrossTheWholeRun(t *testing.T) {
+	body := dashboardBody(t)
+	require.NotContains(t, body, ".day-job.failed { background:var(--bad); }",
+		"a failed bar must not be red for its whole length")
+	require.Contains(t, body, `.day-job.failed::after { content:""; position:absolute; right:0; top:0; bottom:0;`)
+
+	// A failed job still says whose it was: the two classes compose.
+	require.Contains(t, dashboardFunction(t, body, "dayBar"),
+		`(j.submitter === identity ? " mine" : "") + (failed ? " failed" : "")`)
+
+	// And the legend shows what the reader will actually see.
+	require.Contains(t, dashboardFunction(t, body, "dayLegend"),
+		`"box-shadow": "inset -4px 0 0 var(--bad)"`)
+}
+
 func TestDashboardRunningIsADestination(t *testing.T) {
 	body := dashboardBody(t)
 	require.Contains(t, body, `<button type="button" data-place="running">Running now`)

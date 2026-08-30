@@ -441,7 +441,14 @@
              color:#fff; font:inherit; font-size:11px; font-weight:500; white-space:nowrap;
              box-shadow:0 0 0 2px var(--bg); background:var(--job-other); }
   .day-job.mine { background:var(--job-mine); }
-  .day-job.failed { background:var(--bad); }
+  /* A run that worked for four hours and then died was not failing for four
+     hours, and painting the whole bar red says it was. The bar keeps the
+     colour of the work — who held the card, which is what the lane is about —
+     and the failure is marked where it actually happened, at the end. A short
+     failed run is almost all cap, which is exactly right: those are the ones
+     that should read as red at a glance. */
+  .day-job.failed::after { content:""; position:absolute; right:0; top:0; bottom:0;
+                           width:5px; background:var(--bad); }
   .day-job:hover { filter:brightness(1.13); }
   .day-job:focus-visible { outline:2px solid var(--ink); outline-offset:1px; }
   /* A textured span is the encoding that survives greyscale and colour-vision
@@ -2003,7 +2010,8 @@
   function dayBar(j, span, nowMs) {
     var running = !j.finished_at;
     var failed = j.state === "failed" || j.state === "lost";
-    var bar = el("button", "day-job" + (failed ? " failed" : j.submitter === identity ? " mine" : ""));
+    var bar = el("button", "day-job" +
+      (j.submitter === identity ? " mine" : "") + (failed ? " failed" : ""));
     bar.type = "button";
     bar.style.left = span.left + "%";
     bar.style.width = span.width + "%";
@@ -2066,7 +2074,10 @@
     }
     swatch("your work", { background: "var(--job-mine)" });
     swatch("everyone else", { background: "var(--job-other)" });
-    swatch("did not finish", { background: "var(--bad)" });
+    swatch("did not finish", {
+      background: "var(--job-other)",
+      "box-shadow": "inset -4px 0 0 var(--bad)"
+    });
     swatch("out of the pool", {
       "background-image": "repeating-linear-gradient(45deg,var(--hatch-bad) 0 4px,transparent 4px 8px)",
       border: "1px solid var(--bad-line)"
