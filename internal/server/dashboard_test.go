@@ -597,7 +597,6 @@ func TestDashboardUsesAiryUITypefaceForPageHeadings(t *testing.T) {
   }`)
 }
 
-
 // A textured span is what keeps "out of the pool" legible in greyscale and for
 // a colourblind reader, so the texture has to stay readable AS texture. Type
 // on 45-degree stripes is unreadable, and the state word is already in the
