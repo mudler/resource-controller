@@ -526,6 +526,78 @@ func TestDashboardDayIsTheDefaultFleetView(t *testing.T) {
 	require.Contains(t, dashboardFunction(t, body, "dayBar"), `setAttribute("aria-label", label)`)
 }
 
+// A running or historical job owns the first row in a device lane. Named
+// queued jobs begin below it, each in a separate fixed-height slot. Near the
+// right edge, a compact dashed marker stays visible even when its text cannot.
+func TestDashboardNamedQueueStacksWithoutOverprinting(t *testing.T) {
+	var got struct {
+		Zero   int   `json:"zero"`
+		One    int   `json:"one"`
+		Three  int   `json:"three"`
+		Tops   []int `json:"tops"`
+		Narrow bool  `json:"narrow"`
+		Roomy  bool  `json:"roomy"`
+	}
+	runDashboardJS(t, []string{"dayLaneHeight", "dayQueueTop", "dayQueueShowsLabel"},
+		`({zero:dayLaneHeight(0),one:dayLaneHeight(1),three:dayLaneHeight(3),`+
+			`tops:[dayQueueTop(0),dayQueueTop(1),dayQueueTop(2)],`+
+			`narrow:dayQueueShowsLabel(8),roomy:dayQueueShowsLabel(20)})`,
+		&got)
+	require.Equal(t, 38, got.Zero)
+	require.Equal(t, 68, got.One)
+	require.Equal(t, 128, got.Three)
+	require.Equal(t, []int{35, 65, 95}, got.Tops)
+	require.False(t, got.Narrow, "a clipped label must not turn into a column of overprinted letters")
+	require.True(t, got.Roomy, "the chart keeps the useful label when the future has room")
+
+	body := dashboardBody(t)
+	require.Contains(t, body, ".day-ghost { position:absolute; height:27px;",
+		"queued controls need a fixed row height instead of filling the lane")
+	require.Contains(t, dashboardFunction(t, body, "dayLane"), "dayLaneHeight(queued.length)")
+	require.Contains(t, dashboardFunction(t, body, "dayLane"), "dayGhost(j, waiting[j.id], win, nowMs, index)")
+
+	var rendered struct {
+		Tops      []string `json:"tops"`
+		Width     string   `json:"width"`
+		Transform string   `json:"transform"`
+	}
+	runDashboardJSWithPrelude(t,
+		[]string{"dayPct", "dayQueueTop", "dayQueueShowsLabel", "dayGhost"},
+		`function el(){return {style:{},appendChild:function(){},setAttribute:function(){},addEventListener:function(){}}}
+function ago(){return "1m"} function openJob(){}`,
+		`(function(){var nodes=[0,1,2].map(function(i){return dayGhost({id:"queued"},60,{from:0,to:100},95,i)});
+return {tops:nodes.map(function(n){return n.style.top}),width:nodes[0].style.width,transform:nodes[0].style.transform}})()`,
+		&rendered)
+	require.Equal(t, []string{"35px", "65px", "95px"}, rendered.Tops)
+	require.Equal(t, "24px", rendered.Width, "the compact marker needs a usable pointer target")
+	require.Equal(t, "translateX(-100%)", rendered.Transform, "the marker must remain inside the chart")
+}
+
+// Now is one moment for the entire chart, not a separate fragment inside each
+// device lane. A chart-level overlay keeps the line continuous through hosts
+// and lanes even when queued work makes one lane taller.
+func TestDashboardNowLineSpansTheWholeDayChart(t *testing.T) {
+	body := dashboardBody(t)
+	chart := dashboardFunction(t, body, "dayChart")
+	lane := dashboardFunction(t, body, "dayLane")
+	require.Contains(t, chart, `el("div", "day-nowlayer")`)
+	require.Contains(t, chart, `el("div", "day-nowline")`)
+	require.NotContains(t, lane, `"day-nowline"`)
+	require.Contains(t, body,
+		".day-nowlayer { position:absolute; left:150px; right:0; top:16px; bottom:0;")
+}
+
+func TestDashboardUsesAiryUITypefaceForPageHeadings(t *testing.T) {
+	body := dashboardBody(t)
+	require.NotContains(t, body, "ui-serif",
+		"dashboard headings use the same legible UI family as the controls and data")
+	require.Contains(t, body, `.fleet-statement, .running-head h2, .workspace-head h2 {
+    font-family:inherit; font-size:2.125rem; line-height:1.22;
+    font-weight:500; letter-spacing:-.015em;
+  }`)
+}
+
+
 // A textured span is what keeps "out of the pool" legible in greyscale and for
 // a colourblind reader, so the texture has to stay readable AS texture. Type
 // on 45-degree stripes is unreadable, and the state word is already in the

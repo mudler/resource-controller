@@ -70,6 +70,10 @@
   header .brand { display:flex; align-items:center; gap:var(--sp-3); margin-right:auto; }
   header svg { display:block; }
   h1 { font-size:15px; margin:0; font-weight:600; letter-spacing:-.01em; }
+  .fleet-statement, .running-head h2, .workspace-head h2 {
+    font-family:inherit; font-size:2.125rem; line-height:1.22;
+    font-weight:500; letter-spacing:-.015em;
+  }
   .live { font-size:13px; color:var(--muted); display:flex; align-items:center; gap:var(--sp-2); }
   .dot { width:7px; height:7px; border-radius:50%; background:var(--ready); flex:none; }
   .live.warn .dot { background:var(--warn); }
@@ -86,9 +90,7 @@
 
   .fleet-head { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:18px 28px;
                 align-items:end; margin-bottom:26px; }
-  .fleet-statement { font-family:ui-serif,Georgia,Cambria,"Times New Roman",serif;
-                     font-size:clamp(25px,3.1vw,38px); line-height:1.16;
-                     letter-spacing:-.025em; margin:0; max-width:850px; }
+  .fleet-statement { margin:0; max-width:850px; }
   .fleet-statement b { font-weight:650; }
   .fleet-statement .bad { color:var(--bad); }
   .fleet-facts { display:flex; gap:7px 24px; flex-wrap:wrap; margin-top:12px;
@@ -334,8 +336,7 @@
      Every active lease on one screen. Watching three jobs used to mean
      opening three pages one at a time. */
   .running-head { margin-bottom:18px; }
-  .running-head h2 { font:650 clamp(23px,3vw,34px)/1.2 ui-serif,Georgia,serif; margin:0 0 4px;
-                     letter-spacing:-.02em; }
+  .running-head h2 { margin:0 0 4px; }
   .running-sub { font-size:13px; color:var(--muted); margin:0; }
   .running-sub .warn { color:var(--warn); font-weight:600; }
   .run { border:1px solid var(--line); border-radius:11px; background:var(--panel);
@@ -430,13 +431,14 @@
   .day-track { position:relative; height:100%; border-bottom:1px solid var(--line);
                background-image:repeating-linear-gradient(to right,var(--line) 0 1px,transparent 1px var(--day-col)); }
   .day-future { position:absolute; top:0; bottom:0; background:var(--sunk); opacity:.55; z-index:0; pointer-events:none; }
-  .day-nowline { position:absolute; top:0; bottom:0; width:0; border-left:1.5px solid var(--accent);
-                 z-index:4; pointer-events:none; }
+  .day-nowlayer { position:absolute; left:150px; right:0; top:16px; bottom:0;
+                  z-index:4; pointer-events:none; }
+  .day-nowline { position:absolute; top:0; bottom:0; width:0; border-left:1.5px solid var(--accent); }
   /* One categorical distinction only — your work against everyone else's —
      validated for colour-vision deficiency at dE 21.4 normal, 15.7 protan.
      The submitter is written on any bar with room, so identity never rests
      on hue alone. */
-  .day-job { position:absolute; top:5px; bottom:6px; border:0; border-radius:3px; padding:0 7px;
+  .day-job { position:absolute; top:5px; height:27px; border:0; border-radius:3px; padding:0 7px;
              overflow:hidden; display:flex; align-items:center; cursor:pointer; z-index:2;
              color:#fff; font:inherit; font-size:11px; font-weight:500; white-space:nowrap;
              box-shadow:0 0 0 2px var(--bg); background:var(--job-other); }
@@ -456,7 +458,7 @@
      set on it. The words sit on an opaque plate at the head of the span and
      say WHEN the state began — the state word itself is already in the lane
      label beside it and in the legend below. */
-  .day-span { position:absolute; top:4px; bottom:5px; border-radius:3px; overflow:hidden;
+  .day-span { position:absolute; top:4px; height:29px; border-radius:3px; overflow:hidden;
               display:flex; align-items:stretch; padding:0; z-index:2; }
   .day-span.unhealthy { border:1px solid var(--bad-line);
     background-image:repeating-linear-gradient(45deg,var(--hatch-bad) 0 5px,transparent 5px 10px); }
@@ -468,7 +470,7 @@
   .day-span.unhealthy .day-plate { color:var(--bad); border-right:1px solid var(--bad-line); }
   .day-span.unknown .day-plate { color:var(--muted); font-weight:500; border-right:1px solid var(--line-2); }
   /* Queued work is an outline, not a fill: it has not happened yet. */
-  .day-ghost { position:absolute; top:5px; bottom:6px; border:1.5px dashed var(--faint); background:none;
+  .day-ghost { position:absolute; height:27px; border:1.5px dashed var(--faint); background:none;
                border-radius:3px; padding:0 7px; overflow:hidden; display:flex; align-items:center;
                cursor:pointer; z-index:2; color:var(--muted); font:inherit; font-size:11px;
                white-space:nowrap; }
@@ -483,8 +485,7 @@
   .workspace-head { display:grid; grid-template-columns:auto minmax(0,1fr); gap:var(--sp-4);
                     align-items:start; margin-bottom:26px; padding-bottom:16px;
                     border-bottom:1px solid var(--line); }
-  .workspace-head h2 { margin:2px 0 0; font:650 clamp(23px,3vw,34px)/1.2 ui-serif,Georgia,serif;
-                       overflow-wrap:anywhere; }
+  .workspace-head h2 { margin:2px 0 0; overflow-wrap:anywhere; }
   .workspace-kind { display:block; font-size:11px; color:var(--muted); letter-spacing:.08em;
                     text-transform:uppercase; }
   .workspace-body { max-width:none; }
@@ -1939,6 +1940,12 @@
         .forEach(function (v) { grid.appendChild(dayLane(v, jobs, state, waiting, win, nowMs)); });
     }
 
+    var nowLayer = el("div", "day-nowlayer");
+    var nowLine = el("div", "day-nowline");
+    nowLine.style.left = dayPct(nowMs, win) + "%";
+    nowLayer.appendChild(nowLine);
+    grid.appendChild(nowLayer);
+
     scroll.appendChild(grid);
     return scroll;
   }
@@ -1965,9 +1972,23 @@
     return row;
   }
 
+  function dayLaneHeight(queueCount) {
+    return 38 + queueCount * 30;
+  }
+
+  function dayQueueTop(index) {
+    return 35 + index * 30;
+  }
+
+  function dayQueueShowsLabel(remainingPercent) {
+    return remainingPercent >= 12;
+  }
+
   function dayLane(v, jobs, state, waiting, win, nowMs) {
     var d = v.device;
+    var queued = (state.queued || []).filter(function (j) { return j.device_id === d.id; });
     var lane = el("div", "day-lane");
+    lane.style.height = dayLaneHeight(queued.length) + "px";
 
     var name = el("div", "day-name");
     var open = el("button", null, d.name || d.id);
@@ -1995,14 +2016,9 @@
     var st = stateSpan(v, jobs, nowMs);
     if (st) track.appendChild(daySpan(st, win, nowMs));
 
-    (state.queued || []).forEach(function (j) {
-      if (j.device_id !== d.id) return;
-      track.appendChild(dayGhost(j, waiting[j.id], win, nowMs));
+    queued.forEach(function (j, index) {
+      track.appendChild(dayGhost(j, waiting[j.id], win, nowMs, index));
     });
-
-    var now = el("div", "day-nowline");
-    now.style.left = dayPct(nowMs, win) + "%";
-    track.appendChild(now);
     lane.appendChild(track);
     return lane;
   }
@@ -2046,12 +2062,20 @@
     return span;
   }
 
-  function dayGhost(j, waited, win, nowMs) {
+  function dayGhost(j, waited, win, nowMs, index) {
     var g = el("button", "day-ghost");
     g.type = "button";
-    g.style.left = dayPct(nowMs, win) + "%";
-    g.style.right = "0";
-    g.appendChild(el("span", null, j.id + " waiting " + ago(typeof waited === "number" ? waited : 0)));
+    var left = dayPct(nowMs, win);
+    var remaining = 100 - left;
+    g.style.left = left + "%";
+    g.style.top = dayQueueTop(index) + "px";
+    if (dayQueueShowsLabel(remaining)) {
+      g.style.right = "0";
+      g.appendChild(el("span", null, j.id + " waiting " + ago(typeof waited === "number" ? waited : 0)));
+    } else {
+      g.style.width = "24px";
+      g.style.transform = "translateX(-100%)";
+    }
     var label = j.id + " is queued for this device by name and has waited " +
       ago(typeof waited === "number" ? waited : 0);
     g.title = label;
